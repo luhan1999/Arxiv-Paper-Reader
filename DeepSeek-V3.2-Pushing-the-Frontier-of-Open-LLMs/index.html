@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek-V3.2 深度解读</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:240px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px}.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:240px;max-width:880px;padding:48px 44px 120px} h1{font-size:27px;line-height:1.35;margin:0 0 6px;color:#000} .subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+h2{font-size:20px;color:#000;margin:32px 0 12px;padding-bottom:6px;border-bottom:2px solid #000} h3{font-size:16px;color:#000;margin:24px 0 8px} p{margin:0 0 12px;text-align:justify}
+.card,.highlight{border:1px solid var(--line);padding:18px;margin:16px 0;background:#fff}.highlight{background:#f7f7f2;border-left:3px solid #000}
+.figure-box{border:1px solid #ccc;padding:14px;text-align:center;margin:20px auto;background:#fff}.figure-box img{max-width:100%;height:auto}.caption{font-size:12px;color:#444;margin-top:8px;line-height:1.65;font-style:italic;text-align:left}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px} th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left} td{border-bottom:1px solid #ddd;padding:7px 9px}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0}.metric-card{border:1px solid #ccc;text-align:center;padding:14px}.metric-card .value{font-size:24px;font-weight:700;color:#000}.metric-card .label{font-size:11px;color:#666;margin-top:4px}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto;font-size:14px}.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+ul,ol{margin:8px 0 12px 22px}li{margin:5px 0}
+code{background:#f3f3f3;padding:1px 5px;border-radius:2px;font-size:13px}
+@media(max-width:900px){.toc-sidebar{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line)}.main{margin-left:0;padding:24px 20px 80px}.two-col{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<aside class="toc-sidebar">
+<h2>目录</h2>
+<a href="#abstract">摘要 / 核心贡献</a>
+<a href="#bg">1 背景与问题</a>
+<a href="#dsa">2 DSA 稀疏注意力</a>
+<a class="sub" href="#dsa-prototype">2.1 原型与公式</a>
+<a class="sub" href="#dsa-mla">2.2 基于 MLA 的实例化</a>
+<a class="sub" href="#dsa-train">2.3 两阶段持续预训练</a>
+<a class="sub" href="#dsa-cost">2.4 推理成本</a>
+<a href="#post">3 后训练与 RL 缩放</a>
+<a class="sub" href="#post-grpo">3.1 GRPO 的稳定性技巧</a>
+<a class="sub" href="#post-think">3.2 工具调用中的 Thinking</a>
+<a class="sub" href="#post-synth">3.3 大规模 Agent 任务合成</a>
+<a href="#eval">4 实验评估</a>
+<a class="sub" href="#eval-main">4.1 主结果</a>
+<a class="sub" href="#eval-speciale">4.2 Speciale 与金牌成绩</a>
+<a class="sub" href="#eval-synth">4.3 合成任务消融</a>
+<a class="sub" href="#eval-ctx">4.4 搜索的上下文管理</a>
+<a href="#analysis">5 深度分析</a>
+<a href="#limit">6 局限性与展望</a>
+<a href="#takeaways">7 核心总结</a>
+<a href="#refs">8 资源链接</a>
+</aside>
+
+<main class="main">
+
+<h1>DeepSeek-V3.2: Pushing the Frontier of Open Large Language Models</h1>
+<div class="subtitle">DeepSeek-AI · arXiv:2512.02556 · 2025/12 · 中文深度解读</div>
+
+<div class="highlight">
+<b>一句话概括.</b> DeepSeek-V3.2 在 V3.1-Terminus 基础上继续训练，引入 <b>DeepSeek Sparse Attention (DSA)</b> 把核心注意力复杂度从 $O(L^2)$ 降为 $O(Lk)$；并把 RL 后训练的 compute budget 拉到 <b>预训练成本的 10%+</b>，配合"specialist 蒸馏 + 混合 GRPO"和 <b>1827 个合成 agent 环境 / 8.5 万复杂提示词</b> 的 RL 数据管线，使开源模型在推理基准上接近 GPT-5、在 agent 基准上把开源/闭源差距大幅缩小。其 high-compute 变体 <b>Speciale</b> 在 IMO/IOI/CMO/ICPC WF 2025 上拿到金牌。
+</div>
+
+<h2 id="abstract">摘要 / 核心贡献</h2>
+<p>论文将开源大模型在复杂任务上落后于闭源前沿模型的原因归结为三点缺陷，并对每一点给出针对性方案：</p>
+<ol>
+<li><b>架构层面</b>：Vanilla / MLA Attention 在长序列上是 $O(L^2)$，制约部署与后训练。<span class="tag">→ DSA</span> 让核心注意力变成 $O(Lk)$，长上下文 decoding 成本下降数倍。</li>
+<li><b>资源层面</b>：开源模型后训练 compute 投入不足。<span class="tag">→ Scalable GRPO</span> 通过 unbiased KL、off-policy mask、Keep Routing、Keep Sampling Mask 把 RL 训得稳，跑出 >10% pre-train cost 的后训练算力。</li>
+<li><b>Agent 层面</b>：开源模型在工具调用 / 复杂指令下泛化差。<span class="tag">→ Synth Pipeline</span> 自动合成 1827 个 environment、4417 个任务、8.5 万 prompt，把推理与工具调用统一在一条轨迹里。</li>
+</ol>
+
+<div class="figure-box">
+  <img src="images/fig01_performance.png" alt="Benchmark">
+  <div class="caption"><b>Figure 1.</b> 模型对比基准：左半边 Reasoning（AIME 2025、HMMT 2025、HLE、Codeforces Rating），右半边 Agentic（SWE-Verified、Terminal Bench 2.0、$\tau^2$ Bench、Tool Decathlon）。柱形从左到右分别是 V3.2-Speciale (实心蓝)、V3.2-Thinking (条纹蓝)、GPT-5-High、Claude-4.5-Sonnet、Gemini-3.0-Pro。HMMT 2025 用的是 February 比赛、HLE 是 text-only。Codeforces 用右轴的 Rating 数值。可以看出：在 Reasoning 上 Speciale 全面追平或超越 Gemini-3.0-Pro；Agentic 上 V3.2-Thinking 在 SWE Verified、Terminal Bench、Tool Decathlon 上超越 GPT-5-High 与 Claude-4.5-Sonnet（Terminal Bench 46.4 显著高于 GPT-5 的 35.2）。</div>
+</div>
+
+<h2 id="bg">1 背景与核心问题</h2>
+<p>2024-2025 年开源 LLM（Qwen3、Kimi-K2、MiniMax M2、GLM-4.5）持续进步，但闭源 GPT-5 / Gemini-3 / Claude-4.5 进步更快，差距在 <b>拉大而非收敛</b>。论文判断核心瓶颈不在"再多堆点参数 / token"，而在三件事：</p>
+<ul>
+<li>稠密 attention 的 $O(L^2)$ 让 128K 推理与 RL rollout 极其昂贵；</li>
+<li>开源团队普遍 RL 算力远不及 pre-train（典型 1-3%），高难任务训不动；</li>
+<li>非 SWE-Verified / 标准基准之外的"长尾" agent 任务（MCP-Universe、Tool Decathlon）开源模型表现远弱。</li>
+</ul>
+
+<h2 id="dsa">2 DeepSeek Sparse Attention (DSA)</h2>
+
+<h3 id="dsa-prototype">2.1 原型：Lightning Indexer + Top-k Selector</h3>
+<p>DSA 的思路：在每个 query token 真正去做 attention 之前，先用一个非常便宜的 <b>lightning indexer</b> 给历史 token 打分，然后只在 top-k 个最相关的 KV 上做 attention。它由两件事组成。</p>
+
+<p><b>(1) Lightning Indexer.</b> 对 query $\mathbf h_t$ 与历史 token $\mathbf h_s$ 计算索引分数：</p>
+<div class="formula">
+$$ I_{t,s} = \sum_{j=1}^{H^I} w_{t,j}^I \cdot \mathrm{ReLU}\!\left(\mathbf q_{t,j}^I \cdot \mathbf k_s^I\right). \quad (1) $$
+</div>
+<p>每个项的含义：$\mathbf q_{t,j}^I, w_{t,j}^I$ 由 $\mathbf h_t$ 经 indexer 投影得到的第 $j$ 个 head 的 query 向量与门控权重；$\mathbf k_s^I$ 是 $\mathbf h_s$ 投影得到的 indexer key。<b>用 ReLU 而不是 softmax 是为了 throughput</b>——可以走 FP8 高吞吐 kernel；同时 $H^I$ 设很小，使 indexer 整体耗时远小于 MLA。</p>
+
+<p><b>(2) Top-k Token Selection.</b> 对每个 query 取 top-k 索引最高的 KV 做注意力：</p>
+<div class="formula">
+$$ \mathbf u_t = \mathrm{Attn}\!\left(\mathbf h_t,\; \{\mathbf c_s \mid I_{t,s}\in\mathrm{Top\text{-}k}(I_{t,:})\}\right). \quad (2) $$
+</div>
+<p>关键直觉：在 128K 上下文里真正 attention 高的 token 通常 <b>极其稀疏</b>，所以 $k\ll L$（论文用 $k=2048$）即可在性能不掉的前提下把 attention 复杂度从 $O(L^2)$ 砍到 $O(Lk)$。</p>
+
+<h3 id="dsa-mla">2.2 在 MLA 上落地：MQA 模式</h3>
+<p>为了让 DSA 能从 V3.1-Terminus 的 MLA 检查点 <b>continue training</b>（不是从头训），并满足"每个 KV 必须被多个 query 共享"的 kernel 效率约束，作者把 DSA 实例化在 <b>MLA 的 MQA 模式</b>之上：每个 latent KV 被该 token 的全部 query head 共享。</p>
+
+<div class="figure-box">
+  <img src="images/fig02_arch.png" alt="DSA-MLA architecture">
+  <div class="caption"><b>Figure 2.</b> DSA 在 MLA 上的实例化。<b>下方 input hidden $\mathbf h_t$</b> 经过两条平行通路：左侧深色路径走 MLA 主干——$\mathbf c_t^Q$ 投影出 $\mathbf q_{t,i}^A$ 与 $\mathbf q_{t,i}^R$（apply RoPE 后拼接），KV 端 $\mathbf c_t^{KV}$ 与 $\mathbf k_t^R$ 拼接进入 Multi-Query Attention（Core Attention）；右侧绿色路径是新增的 Lightning Indexer——$\{\mathbf q_{t,j}^I\}$、$\mathbf k_t^I$、门控权重 $\{w_{t,j}^I\}$ 经 partial RoPE 与点积得到索引分数，送到中间的 <b>Top-k Selector</b>，由它在 KV cache 里筛出 $k$ 条 latent，再交给 core attention。绿色 = 新增；灰色 = 原 MLA 路径。这张图回答的是"DSA 是怎么挂在已有 MLA 上的，能否平滑 continue training"。</div>
+</div>
+
+<h3 id="dsa-train">2.3 两阶段 continued pre-training</h3>
+<p>从 128K context 的 V3.1-Terminus base 出发：</p>
+
+<div class="card">
+<b>Stage 1 — Dense Warm-up（仅训 indexer）.</b> 冻结所有参数只训 indexer。把主 attention 的所有 head 求和后做 L1-norm 得到 target 分布 $p_{t,:}$，让 indexer 输出的 softmax 与之 KL 对齐：
+<div class="formula">$$ \mathcal L^I = \sum_t \mathbb D_{\mathrm{KL}}\!\left(p_{t,:}\,\|\,\mathrm{Softmax}(I_{t,:})\right). \quad (3) $$</div>
+LR=$10^{-3}$，1000 步 × 16×128K ≈ <b>2.1B tokens</b>。
+</div>
+
+<div class="card">
+<b>Stage 2 — Sparse Training（全参数训）.</b> 引入 top-k 选择，主模型用 LM loss 优化全部参数，indexer 仍用 KL 对齐，但 <b>只对被选中的 token 集合</b> $\mathcal S_t$ 求和：
+<div class="formula">$$ \mathcal L^I = \sum_t \mathbb D_{\mathrm{KL}}\!\left(p_{t,\mathcal S_t}\,\|\,\mathrm{Softmax}(I_{t,\mathcal S_t})\right). \quad (4) $$</div>
+关键工程细节：<b>indexer 输入从计算图 detach</b>，让 indexer 仅由 $\mathcal L^I$ 驱动，主模型仅由 LM loss 驱动；LR=$7.3\times 10^{-6}$；$k=2048$；15000 步 × 480×128K ≈ <b>943.7B tokens</b>。
+</div>
+
+<h3 id="dsa-cost">2.4 推理成本：H800 实测</h3>
+<div class="two-col">
+<div class="figure-box">
+  <img src="images/fig03a_cost_prefilling.png" alt="prefilling cost">
+  <div class="caption"><b>Figure 3a.</b> Prefilling 成本（每百万 token 美元）随 token 位置变化。蓝线 V3.1-Terminus 在 128K 处达到约 0.66\$，几乎线性增长（$O(L^2)$ 分摊到每 token 后是 $O(L)$）；橙线 V3.2 在 128K 处仅约 0.18\$，曲线接近平坦——这就是把核心 attention 从 $O(L^2)$ 降到 $O(Lk)$ 后剩下的 indexer + 其余开销。短序列（≤8K）时 V3.2 用 masked MHA 模拟 DSA 反而比稀疏路径更快，所以两线在原点附近交汇。</div>
+</div>
+<div class="figure-box">
+  <img src="images/fig03b_cost_decoding.png" alt="decoding cost">
+  <div class="caption"><b>Figure 3b.</b> Decoding 成本。在 decoding 阶段 V3.1-Terminus 的成本随 token 位置近似线性增长（每步 attention 都要扫整个 KV cache），128K 处接近 2.4\$/M；V3.2 因每步只 attend top-k=2048 个 KV，曲线明显更平，128K 处 < 0.5\$/M——这是 DSA 在长上下文 agent 场景下最大的实际收益。</div>
+</div>
+</div>
+
+<h2 id="post">3 后训练：把 RL Compute 推到预训练的 10%+</h2>
+<p>后训练保持 V3.2-Exp 的两段式：先 <b>specialist distillation</b>（在 6 个领域：数学、编程、通用逻辑、通用 agent、agentic coding、agentic search 各训一个 specialist，再蒸馏回 base），再 <b>mixed GRPO</b>。但要把 RL compute 拉到 pre-train 的 10%+ 而不崩，需要 4 个稳定性技巧。</p>
+
+<h3 id="post-grpo">3.1 Scaling GRPO 的四个稳定性技巧</h3>
+
+<p>原始 GRPO 目标：</p>
+<div class="formula">
+$$ \mathcal J_{\mathrm{GRPO}}(\theta) = \mathbb E\!\left[\frac{1}{G}\sum_i \frac{1}{|o_i|}\sum_t \min\!\left(r_{i,t}\hat A_{i,t},\,\mathrm{clip}(r_{i,t},1\!-\!\varepsilon,1\!+\!\varepsilon)\hat A_{i,t}\right) - \beta\,\mathbb D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})\right]. \quad (5) $$
+</div>
+<p>$\hat A_{i,t}=R_i-\mathrm{mean}(\boldsymbol R)$ 是组内归一化优势。下面四条技巧都是为了把 long-horizon、long-rollout、MoE 路由变化等带来的不稳定性压住。</p>
+
+<div class="card">
+<b>(i) Unbiased KL Estimate.</b> 把 Schulman 的 K3 估计器做 importance-sampling 修正：
+<div class="formula">
+$$ \mathbb D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}}) = \frac{\pi_\theta}{\pi_{\mathrm{old}}}\!\left(\frac{\pi_{\mathrm{ref}}}{\pi_\theta} - \log\frac{\pi_{\mathrm{ref}}}{\pi_\theta} - 1\right). \quad (7) $$
+</div>
+<b>Why 关键：</b>原 K3 估计器在 $\pi_\theta\ll\pi_{\mathrm{ref}}$（探索到罕见 token）时会赋予 unbounded 大权重，让梯度 explode。修正后梯度 unbiased。同时论文发现不同领域适合不同 KL 强度，<b>数学任务甚至完全去掉 KL 反而更好</b>。
+</div>
+
+<div class="card">
+<b>(ii) Off-Policy Sequence Masking.</b> 大 batch rollout + 多 mini-batch 更新天然 off-policy；inference / training 的 kernel 不一致还会再放大。引入 binary mask $M_{i,t}$：
+<div class="formula">
+$$ M_{i,t}=\begin{cases}0 & \hat A_{i,t}<0\;\text{且 sequence-level KL} > \delta \\ 1 & \text{otherwise}\end{cases}. \quad (9) $$
+</div>
+<b>只对负优势 + 强 off-policy 的序列丢弃</b>。直觉：模型最该从"自己刚犯过的错"中学，过度 off-policy 的负样本反而误导。
+</div>
+
+<div class="card">
+<b>(iii) Keep Routing.</b> MoE 模型 inference / training 框架的浮点差会让相同输入选不同 expert，激活子空间突变 → 训练不稳。<b>训练时强制复用 inference 阶段记录下来的 routing 路径</b>，让被优化的就是 sampling 时被激活的那批 expert 参数。这条从 V3-0324 起就在用。
+</div>
+
+<div class="card">
+<b>(iv) Keep Sampling Mask.</b> Top-p / top-k 截断改变了 $\pi_{\mathrm{old}}$ 与 $\pi_\theta$ 的 action space，违反 IS 前提。把 sampling 时的截断 mask 也带到 training，保证两个 policy 同 action subspace。Top-p + 该策略对 <b>RL 训练后语言一致性</b> 的保留尤其关键。
+</div>
+
+<h3 id="post-think">3.2 工具调用中的 Thinking：上下文管理</h3>
+<p>R1 的策略是"每出现新 message 就丢弃 reasoning"。在 tool-use 场景下这非常浪费——每次 tool 返回都要重推一遍整个推理链。V3.2 改成两条规则：</p>
+<ol>
+<li>只有遇到 <b>新的 user message</b> 才丢弃历史 reasoning；如果只是 tool output，reasoning 全部保留。</li>
+<li>即便丢弃了 reasoning trace，<b>tool calls 与 tool results 的历史仍保留</b>。</li>
+</ol>
+<p>但 Roo Code / Terminus 这类把 tool 模拟成 user message 的框架不能从这条规则中受益（每轮都丢 reasoning），所以官方建议在它们之上跑 non-thinking 模式。</p>
+
+<div class="figure-box">
+  <img src="images/fig04_thinking_template.jpeg" alt="thinking retention">
+  <div class="caption"><b>Figure 4.</b> Thinking retention 机制示意。蓝色虚线框内是同一个 user message（User message 1）的多轮 tool 交互。Turn 1.1 输入 Tools+User message 1，输出 Thinking 1.1+Tool call 1.1；Turn 1.2 把 Thinking 1.1+Tool call 1.1+Tool result 1.1 全部带进 input 继续推理输出 Thinking 1.2+Tool call 1.2；Turn 1.3 同理累积全部 thinking/tool history 直到给出 Answer 1。蓝色 Thinking 块在多轮 tool 交互里持续保留。直到 <b>Turn 2.1 出现 User message 2</b>（蓝框右侧虚线箭头）：input 中所有 Thinking 1.x 被清空，但 Tool call 1.1/1.2 + Tool result 1.1/1.2 + Answer 1 仍保留。这张图直观回答"哪些 token 在哪一刻被丢弃"。</div>
+</div>
+
+<h3 id="post-synth">3.3 大规模 Agent 任务合成</h3>
+<p>RL data 由四类构成：</p>
+<table>
+<tr><th>任务类别</th><th>任务数</th><th>环境</th><th>Prompt 来源</th></tr>
+<tr><td>Code agent (SWE-style)</td><td>24,667</td><td>真实（GitHub issue+PR 复现）</td><td>抽取</td></tr>
+<tr><td>Search agent</td><td>50,275</td><td>真实搜索 API</td><td>合成</td></tr>
+<tr><td>General agent</td><td>4,417</td><td>合成</td><td>合成</td></tr>
+<tr><td>Code interpreter</td><td>5,908</td><td>真实 Jupyter</td><td>抽取</td></tr>
+</table>
+
+<p>四类任务的关键设计差异：</p>
+<ul>
+<li><b>Code agent.</b> 从 GitHub mine 出 issue ↔ PR pair；用 LLM-judge 过滤；自动 setup environment，要求 <b>F2P&gt;0 且 P2F=0</b>（gold patch 修了 issue 且没引入回归）才算成功。覆盖 Python/Java/JS/TS/C/C++/Go/PHP，几万个可重现环境。</li>
+<li><b>Search agent.</b> 多 agent pipeline：从 web 抽取 long-tail entity → question-construction agent 生成 QA → 多个不同 checkpoint 的 answer agent 生成候选 → verification agent 用搜索做多 pass 校验，<b>只保留"ground-truth 全对、其他候选全错"的样本</b>。</li>
+<li><b>General agent.</b> 自动环境合成 agent 造出 1827 个环境。每个环境流程：① bash + search 抓数据进沙盒 → ② 合成 task-specific tool 函数 → ③ 出 task + Python solution + Python verifier，<b>solution 只能调 tool 函数</b>（不能直接读 DB），且 solution 的输出必须通过 verifier；不通过就改 solution/verifier；可解后再迭代加难度。最后用 V3.2 跑 RL，<b>只保留 pass@100&gt;0 的实例</b>。</li>
+<li><b>Code interpreter.</b> 数学 / 逻辑 / 数据科学题，必须借助 Jupyter 执行才能解。</li>
+</ul>
+<p class="tag">设计哲学：hard to solve, easy to verify</p>
+
+<h2 id="eval">4 实验评估</h2>
+
+<h3 id="eval-main">4.1 主结果：跨能力对比闭源前沿</h3>
+
+<table>
+<tr><th>类别</th><th>基准</th><th>Claude-4.5-Sonnet</th><th>GPT-5-High</th><th>Gemini-3.0-Pro</th><th>Kimi-K2-Thinking</th><th>MiniMax-M2</th><th><b>V3.2-Thinking</b></th></tr>
+<tr><td rowspan="3">English</td><td>MMLU-Pro</td><td>88.2</td><td>87.5</td><td>90.1</td><td>84.6</td><td>82.0</td><td>85.0</td></tr>
+<tr><td>GPQA Diamond</td><td>83.4</td><td>85.7</td><td>91.9</td><td>84.5</td><td>77.7</td><td>82.4</td></tr>
+<tr><td>HLE (text-only)</td><td>13.7</td><td>26.3</td><td>37.7</td><td>23.9</td><td>12.5</td><td>25.1</td></tr>
+<tr><td rowspan="2">Code</td><td>LiveCodeBench</td><td>64.0</td><td>84.5</td><td>90.7</td><td>82.6</td><td>83.0</td><td>83.3</td></tr>
+<tr><td>Codeforces (Rating)</td><td>1480</td><td>2537</td><td>2708</td><td>—</td><td>—</td><td><b>2386</b></td></tr>
+<tr><td rowspan="3">Math</td><td>AIME 2025</td><td>87.0</td><td>94.6</td><td>95.0</td><td>94.5</td><td>78.3</td><td>93.1</td></tr>
+<tr><td>HMMT Feb 2025</td><td>79.2</td><td>88.3</td><td>97.5</td><td>89.4</td><td>—</td><td>92.5</td></tr>
+<tr><td>IMOAnswerBench</td><td>—</td><td>76.0</td><td>83.3</td><td>78.6</td><td>—</td><td>78.3</td></tr>
+<tr><td rowspan="3">Code Agent</td><td>Terminal Bench 2.0</td><td>42.8</td><td>35.2</td><td><b>54.2</b></td><td>35.7</td><td>30.0</td><td><b>46.4</b></td></tr>
+<tr><td>SWE Verified</td><td>77.2</td><td>74.9</td><td>76.2</td><td>71.3</td><td>69.4</td><td>73.1</td></tr>
+<tr><td>SWE Multilingual</td><td>68.0</td><td>55.3</td><td>—</td><td>61.1</td><td>56.5</td><td><b>70.2</b></td></tr>
+<tr><td rowspan="3">Search Agent</td><td>BrowseComp</td><td>24.1</td><td>54.9</td><td>—</td><td>60.2*</td><td>44.0</td><td>51.4 / <b>67.6*</b></td></tr>
+<tr><td>BrowseCompZh</td><td>42.4</td><td>63.0</td><td>—</td><td>62.3</td><td>48.5</td><td><b>65.0</b></td></tr>
+<tr><td>HLE (search)</td><td>32.0</td><td>35.2</td><td>45.8</td><td>44.9</td><td>31.8</td><td>40.8</td></tr>
+<tr><td rowspan="4">Tool Use</td><td>$\tau^2$-Bench</td><td>84.7</td><td>80.2</td><td>85.4</td><td>74.3</td><td>76.9</td><td>80.3</td></tr>
+<tr><td>MCP-Universe</td><td>46.5</td><td>47.9</td><td>50.7</td><td>35.6</td><td>29.4</td><td>45.9</td></tr>
+<tr><td>MCP-Mark</td><td>33.3</td><td>50.9</td><td>43.1</td><td>20.4</td><td>24.4</td><td>38.0</td></tr>
+<tr><td>Tool-Decathlon</td><td>38.6</td><td>29.0</td><td>36.4</td><td>17.6</td><td>16.0</td><td><b>35.2</b></td></tr>
+</table>
+<p style="font-size:11.5px;color:#666">* 表示开启上下文管理（Discard-all）后的结果。</p>
+
+<div class="metric-grid">
+<div class="metric-card"><div class="value">46.4</div><div class="label">Terminal Bench 2.0<br>(超过 GPT-5-High 35.2)</div></div>
+<div class="metric-card"><div class="value">70.2</div><div class="label">SWE Multilingual<br>(全场最高)</div></div>
+<div class="metric-card"><div class="value">67.6</div><div class="label">BrowseComp w/ ctx<br>(超 Kimi-K2 60.2)</div></div>
+<div class="metric-card"><div class="value">35.2</div><div class="label">Tool-Decathlon<br>(开源全场最高)</div></div>
+</div>
+
+<p><b>三个观察：</b></p>
+<ul>
+<li>Reasoning 上 V3.2-Thinking ≈ GPT-5-High，输出 token 比 K2-Thinking 少很多（见 Table 3）。</li>
+<li>Code agent 上 V3.2 显著领先所有开源模型；Terminal Bench 2.0 数 46.4 来自 Claude Code 框架（Terminus 与 V3.2 的 thinking 上下文管理不兼容，那个设置下 39.3）。</li>
+<li>MCP-Mark 等 long-horizon tool 任务 V3.2 经常"自我反复验证"导致超 128K 上下文，加上 context management 才能进一步发挥；但即便如此已远高于其它开源模型。</li>
+</ul>
+
+<h3 id="eval-speciale">4.2 Speciale: 把 token budget 放开后冲奥赛金牌</h3>
+<p>正式 V3.2 用 length-penalty 训练以控制部署成本；研究目的的 <b>Speciale</b> 把 length penalty 放宽 + 仅在 reasoning data 上训 + 加 DeepSeekMath-V2 数据/奖励，主推"更多 thinking token 能换多少能力"。</p>
+
+<table>
+<tr><th>基准 (token 数)</th><th>GPT-5-High</th><th>Gemini-3.0-Pro</th><th>K2-Thinking</th><th>V3.2-Thinking</th><th><b>V3.2-Speciale</b></th></tr>
+<tr><td>AIME 2025</td><td>94.6 (13k)</td><td>95.0 (15k)</td><td>94.5 (24k)</td><td>93.1 (16k)</td><td><b>96.0</b> (23k)</td></tr>
+<tr><td>HMMT Feb 2025</td><td>88.3 (16k)</td><td>97.5 (16k)</td><td>89.4 (31k)</td><td>92.5 (19k)</td><td><b>99.2</b> (27k)</td></tr>
+<tr><td>HMMT Nov 2025</td><td>89.2 (20k)</td><td>93.3 (15k)</td><td>89.2 (29k)</td><td>90.2 (18k)</td><td><b>94.4</b> (25k)</td></tr>
+<tr><td>IMOAnswerBench</td><td>76.0 (31k)</td><td>83.3 (18k)</td><td>78.6 (37k)</td><td>78.3 (27k)</td><td><b>84.5</b> (45k)</td></tr>
+<tr><td>LiveCodeBench</td><td>84.5 (13k)</td><td>90.7 (13k)</td><td>82.6 (29k)</td><td>83.3 (16k)</td><td>88.7 (27k)</td></tr>
+<tr><td>Codeforces</td><td>2537 (29k)</td><td>2708 (22k)</td><td>—</td><td>2386 (42k)</td><td><b>2701</b> (77k)</td></tr>
+<tr><td>HLE</td><td>26.3 (15k)</td><td>37.7 (15k)</td><td>23.9 (24k)</td><td>25.1 (21k)</td><td>30.6 (35k)</td></tr>
+</table>
+
+<p><b>顶级竞赛成绩</b>（论文 Table 4，Speciale 取得）：</p>
+<table>
+<tr><th>赛事</th><th>分数</th><th>名次</th><th>奖牌</th></tr>
+<tr><td>IMO 2025</td><td>35/42</td><td>—</td><td>Gold</td></tr>
+<tr><td>CMO 2025（英文版）</td><td>102/126</td><td>—</td><td>Gold</td></tr>
+<tr><td>IOI 2025</td><td>492/600</td><td>10th</td><td>Gold</td></tr>
+<tr><td>ICPC WF 2025</td><td>10/12 题</td><td>2nd</td><td>Gold</td></tr>
+</table>
+
+<div class="highlight">
+<b>注意：</b>论文坦白 Speciale 的 token efficiency 仍弱于 Gemini-3.0-Pro（同等准确率下要写更长链路）。这是 V3.2 主版本接受 length-penalty 的原因——把性能-成本权衡定在更可部署的位置。
+</div>
+
+<h3 id="eval-synth">4.3 合成 Agent 任务的消融</h3>
+<p>两个问题：合成任务够不够难？能不能 transfer？</p>
+
+<p><b>难度：</b>抽样 50 个 general 合成任务，让自家 V3.2-Exp 与前沿闭源模型测试：</p>
+<table>
+<tr><th>Pass@K</th><th>V3.2-Exp</th><th>Sonnet-4.5</th><th>Gemini-3.0-Pro</th><th>GPT-5-Thinking</th></tr>
+<tr><td>1</td><td>12%</td><td>34%</td><td>51%</td><td>62%</td></tr>
+<tr><td>2</td><td>18%</td><td>47%</td><td>65%</td><td>75%</td></tr>
+<tr><td>4</td><td>26%</td><td>62%</td><td>74%</td><td>82%</td></tr>
+</table>
+<p>最强闭源在 pass@1 也只有 62%，证明<b>合成任务对前沿模型也是 challenging</b>，不是 toy。</p>
+
+<div class="figure-box">
+  <img src="images/fig05_synthesis_rl.png" alt="synthetic RL curves">
+  <div class="caption"><b>Figure 5.</b> 9 张训练曲线，横轴为 RL step，纵轴为各 benchmark 准确率。每张图三条线：蓝色 = DeepSeek-V3.2-SFT 上仅用合成 general agent 数据做 RL；绿色 = V3.2-SFT；橙色虚线 = V3.2-Exp（仅在 search/code 上 RL）。覆盖的 benchmark 包括 $\tau^2$-Bench 各子任务、MCP-Mark、MCP-Universe、Tool-Decathlon 等。蓝线在所有 benchmark 上稳步爬升、显著高于 V3.2-SFT 起点；橙色 V3.2-Exp（只 train 在 search/code）在 $\tau^2$/MCP 这些 <b>分布外</b> 工具任务上几乎不动。结论：合成的 general agent 数据 <b>能跨域 transfer</b> 到真实 MCP/$\tau^2$ 环境，而 search+code RL 不行。</div>
+</div>
+
+<h3 id="eval-ctx">4.4 Search Agent 的上下文管理</h3>
+<p>BrowseComp 类任务即便 128K 也常在推理途中爆窗。论文比较四种 test-time compute 扩展策略（占比超过 80% 时触发）：</p>
+<ul>
+<li><b>Summary</b>：把溢出轨迹总结后重新 rollout。</li>
+<li><b>Discard-75%</b>：丢前 75% 的 tool call 历史。</li>
+<li><b>Discard-all</b>：完全清空 tool 历史（类似 Anthropic 的 new-context tool）。</li>
+<li><b>Parallel-fewest-step</b>（baseline）：并行采 N 条独立 trajectory，选 step 数最少的。</li>
+</ul>
+
+<div class="figure-box">
+  <img src="images/fig06_search.png" alt="ctx mgmt curves">
+  <div class="caption"><b>Figure 6.</b> 横轴 Real Steps（100–900），纵轴 BrowseComp 准确率（52.5–70）。蓝 Summary 曲线缓爬至约 60.2（≈ 364 步）；橙 Discard-75% 仅在 100–150 步小段、终于 57.5；绿 Discard-all 从 ~120 步起爬升迅速，到 ~400 步达 67.6；灰 Parallel-fewest-step 用更多步数（&gt;900）才达到约 68.5。结论：<b>Discard-all</b> 在效率（step 数）和 scalability（最终分数）上同时占优——用大约一半步数就能逼近并行 baseline，而 Summary 虽然能涨分但效率最低。</div>
+</div>
+
+<h2 id="analysis">5 深度分析：这篇论文真正的"信号"</h2>
+<ul>
+<li><b>架构 × 训练 × 数据三件事都做到位才是开源能追的关键。</b> 单做 sparse attention 不够（很多模型的 sparse attention 拿不到长上下文性能持平），单做更大 RL 也不够（容易塌方）。V3.2 把三件事打成一个 pipeline：DSA 让 RL rollout 便宜→ Scalable GRPO 让 RL compute 真能放大→ Synth pipeline 让 RL 能持续吃到难且可验证的数据。</li>
+<li><b>"长对话里保留 thinking"是 thinking-in-tooluse 的工程关键。</b>R1 风格的"每条新 message 就丢 reasoning"在 agent 场景下损耗巨大，V3.2 改写规则后才使 thinking-mode 在 tool-use 上具备性价比。</li>
+<li><b>Hard to solve, easy to verify 是 RL 数据合成的核心节奏。</b>General agent 通过"任务+solution+verifier 一起合成、solution 只能调 tool"把 verifier 锁死，从根本上避免了 reward hacking。</li>
+<li><b>Test-time compute 扩展不只一种：序列化 (context mgmt) 与并行化 (parallel sampling) 各有 efficiency-scalability 权衡。</b>Discard-all 说明"激进遗忘 + 重启探索"在 BrowseComp 上比 Summary 更有效。</li>
+<li><b>Length penalty 的 trade-off 第一次被透明披露：</b>V3.2 因为 length penalty 比 Speciale 弱很多分，token efficiency 仍是首要未解。</li>
+</ul>
+
+<h2 id="limit">6 局限性与展望（论文自陈）</h2>
+<ul>
+<li><b>世界知识广度</b>仍弱于 Gemini-3.0-Pro，主因 pre-train 总 FLOPs 不足，未来计划继续扩 pre-train。</li>
+<li><b>Token efficiency</b> 弱于前沿闭源——同样质量需要更长链路，未来重点是"intelligence density"。</li>
+<li><b>Hardest tasks</b>（HLE、ICPC WF 极难题、MCP 长尾）仍落后，需要继续优化 base model 与后训练 recipe。</li>
+<li><b>当前 thinking 模式与 Roo Code/Terminus 不兼容</b>，部署时需选 non-thinking 或换框架。</li>
+<li>RL on long context 仍需 context-management 才能发挥（128K 在 search/MCP 不够用）。</li>
+</ul>
+
+<h2 id="takeaways">7 核心总结</h2>
+<div class="highlight">
+<ol>
+<li><b>DSA = lightning indexer + top-k token select</b>，把核心 attention 从 $O(L^2)$ 砍到 $O(Lk=2048)$，从 V3.1-Terminus 通过 2.1B + 943.7B token 的 continued pre-train 平滑迁移。</li>
+<li><b>RL compute &gt; 10% pre-train cost</b>，靠 Unbiased KL / Off-Policy Mask / Keep Routing / Keep Sampling Mask 四件事压住 GRPO 不稳定。</li>
+<li><b>Thinking 在 tool-use 中保留</b>仅在 user message 切换时丢弃 reasoning，使 thinking-mode 在 agent 场景具备实际收益。</li>
+<li><b>1827 个合成环境 + verifier 把 RL 数据规模化</b>：hard-to-solve, easy-to-verify，且能 transfer 到 $\tau^2$ / MCP 真实环境。</li>
+<li><b>Speciale 拿 IMO/IOI/CMO/ICPC WF 2025 金牌</b>，但 token 效率代价大；正式 V3.2 用 length-penalty 换取部署经济性。</li>
+</ol>
+</div>
+
+<h2 id="refs">8 资源链接</h2>
+<ul>
+<li>arXiv: <a href="https://arxiv.org/abs/2512.02556" target="_blank">2512.02556</a> · PDF: <a href="https://arxiv.org/pdf/2512.02556" target="_blank">arxiv.org/pdf/2512.02556</a></li>
+<li>HuggingFace 推理实现: <a href="https://huggingface.co/deepseek-ai/DeepSeek-V3.2-Exp/tree/main/inference" target="_blank">deepseek-ai/DeepSeek-V3.2-Exp</a></li>
+<li>DeepSeekMath-V2 (Speciale 数学方法): <a href="https://github.com/deepseek-ai/DeepSeek-Math-V2" target="_blank">github.com/deepseek-ai/DeepSeek-Math-V2</a></li>
+<li>BrowseComp 评测: Wei et al., 2504.12516 · MCP-Universe: Luo et al., 2508.14704 · Tool Decathlon: Li et al., 2510.25726</li>
+<li>相关前作：DeepSeek-V3 (2412.19437)、DeepSeek-V2 / MLA (2405.04434)、Native Sparse Attention (Yuan et al., ACL 2025)</li>
+</ul>
+
+</main>
+</body>
+</html>
