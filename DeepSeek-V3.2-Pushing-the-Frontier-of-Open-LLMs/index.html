@@ -124,15 +124,13 @@ LR=$10^{-3}$，1000 步 × 16×128K ≈ <b>2.1B tokens</b>。
 </div>
 
 <h3 id="dsa-cost">2.4 推理成本：H800 实测</h3>
-<div class="two-col">
 <div class="figure-box">
-  <img src="images/fig03a_cost_prefilling.png" alt="prefilling cost">
-  <div class="caption"><b>Figure 3a.</b> Prefilling 成本（每百万 token 美元）随 token 位置变化。蓝线 V3.1-Terminus 在 128K 处达到约 0.66\$，几乎线性增长（$O(L^2)$ 分摊到每 token 后是 $O(L)$）；橙线 V3.2 在 128K 处仅约 0.18\$，曲线接近平坦——这就是把核心 attention 从 $O(L^2)$ 降到 $O(Lk)$ 后剩下的 indexer + 其余开销。短序列（≤8K）时 V3.2 用 masked MHA 模拟 DSA 反而比稀疏路径更快，所以两线在原点附近交汇。</div>
+  <img src="images/fig03a_cost_prefilling.png" alt="prefilling cost" style="max-width:560px">
+  <div class="caption"><b>Figure 3a (Prefilling).</b> 每百万 token 的美元成本随 token 位置变化。蓝线 V3.1-Terminus 在 128K 处达到约 <b>0.66 美元</b>，几乎线性增长（$O(L^2)$ 分摊到每 token 后是 $O(L)$）；橙线 V3.2 在 128K 处仅约 <b>0.18 美元</b>，曲线接近平坦——这就是把核心 attention 从 $O(L^2)$ 降到 $O(Lk)$ 后剩下的 indexer + 其余开销。短序列（≤8K）时 V3.2 用 masked MHA 模拟 DSA 反而比稀疏路径更快，所以两线在原点附近交汇。</div>
 </div>
 <div class="figure-box">
-  <img src="images/fig03b_cost_decoding.png" alt="decoding cost">
-  <div class="caption"><b>Figure 3b.</b> Decoding 成本。在 decoding 阶段 V3.1-Terminus 的成本随 token 位置近似线性增长（每步 attention 都要扫整个 KV cache），128K 处接近 2.4\$/M；V3.2 因每步只 attend top-k=2048 个 KV，曲线明显更平，128K 处 < 0.5\$/M——这是 DSA 在长上下文 agent 场景下最大的实际收益。</div>
-</div>
+  <img src="images/fig03b_cost_decoding.png" alt="decoding cost" style="max-width:560px">
+  <div class="caption"><b>Figure 3b (Decoding).</b> Decoding 阶段 V3.1-Terminus 的成本随 token 位置近似线性增长（每步 attention 都要扫整个 KV cache），128K 处接近 <b>2.4 美元/M tokens</b>；V3.2 因每步只 attend top-k = 2048 个 KV，曲线明显更平，128K 处 <b>&lt; 0.5 美元/M tokens</b>——这是 DSA 在长上下文 agent 场景下最大的实际收益。</div>
 </div>
 
 <h2 id="post">3 后训练：把 RL Compute 推到预训练的 10%+</h2>
