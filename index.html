@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arxiv Paper Reader · 论文深度解读合集</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.8 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.wrap{max-width:880px;margin:0 auto;padding:56px 32px 120px}
+header{border-bottom:2px solid #000;padding-bottom:18px;margin-bottom:30px}
+h1{font-size:30px;margin:0 0 6px;color:#000;letter-spacing:0.5px}
+.tagline{font-size:13.5px;color:var(--muted);margin:0}
+.meta{font-size:12px;color:var(--muted);margin-top:10px}
+.meta a{color:#444}
+h2{font-size:18px;color:#000;margin:36px 0 14px;padding-bottom:6px;border-bottom:1px solid var(--line);letter-spacing:1px;text-transform:uppercase}
+.paper-list{display:flex;flex-direction:column;gap:14px}
+.paper{border:1px solid var(--line);padding:18px 20px;background:#fff;transition:border-color .15s,background .15s;text-decoration:none;color:inherit;display:block}
+.paper:hover{border-color:#000;background:#fafaf7}
+.paper .num{display:inline-block;font-size:11px;color:var(--muted);letter-spacing:1.5px;margin-bottom:4px}
+.paper .title{font-size:17px;font-weight:700;color:#000;margin:0 0 6px;line-height:1.4}
+.paper .authors{font-size:12.5px;color:var(--muted);margin:0 0 8px;font-style:italic}
+.paper .summary{font-size:13.5px;color:#333;margin:0 0 10px;line-height:1.7}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.tag{display:inline-block;border:1px solid #aaa;color:#333;padding:1px 8px;font-size:11px;letter-spacing:0.5px}
+.tag.k{background:#000;color:#fff;border-color:#000}
+.empty{border:1px dashed var(--line);padding:24px;text-align:center;color:var(--muted);font-size:13px;font-style:italic}
+footer{margin-top:60px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);text-align:center;line-height:1.7}
+footer a{color:#444}
+@media(max-width:640px){.wrap{padding:32px 18px 80px}h1{font-size:24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Arxiv Paper Reader</h1>
+  <p class="tagline">学术论文中文深度解读合集 · LaTeX 风格 HTML 报告</p>
+  <p class="meta">
+    本页汇总了对若干 arXiv 论文的中文深度解读，每篇报告均提取原文图、关键公式与实验结果，并按"问题 → 方法 → 实验 → 局限 → 总结"的结构重写。
+    源码与素材：<a href="https://github.com/luhan1999/Arxiv-Paper-Reader">github.com/luhan1999/Arxiv-Paper-Reader</a>
+  </p>
+</header>
+
+<h2>论文列表</h2>
+
+<div class="paper-list">
+
+  <a class="paper" href="DeepSeek-V3.2-Pushing-the-Frontier-of-Open-LLMs/">
+    <span class="num">2025/12 · arXiv:2512.02556</span>
+    <h3 class="title">DeepSeek-V3.2: Pushing the Frontier of Open Large Language Models</h3>
+    <p class="authors">DeepSeek-AI</p>
+    <p class="summary">
+      DeepSeek-V3.2 在 V3.1-Terminus 基础上引入 <b>DeepSeek Sparse Attention (DSA)</b>，把核心注意力复杂度从 $O(L^2)$ 降为 $O(Lk)$；将 RL 后训练的 compute 推到预训练成本的 10%+；并构建 1,827 个合成 agent 环境 + 8.5 万复杂提示词的数据管线。其 high-compute 变体 <b>Speciale</b> 在 IMO/IOI/CMO/ICPC WF 2025 全部夺金。
+    </p>
+    <div class="tags">
+      <span class="tag k">Sparse Attention</span>
+      <span class="tag">DSA</span>
+      <span class="tag">GRPO Scaling</span>
+      <span class="tag">Agentic RL</span>
+      <span class="tag">长上下文</span>
+      <span class="tag">MoE</span>
+    </div>
+  </a>
+
+</div>
+
+<h2>关于</h2>
+<p style="font-size:13.5px;color:#333;line-height:1.8">
+  每篇报告是一个独立的子目录，结构为 <code style="background:#f3f3f3;padding:1px 5px;font-size:12.5px">论文标题/index.html + images/</code>。
+  风格统一：衬线字体、黑白灰、KaTeX 渲染公式、原文图直接嵌入。
+  使用 GitHub Pages 静态托管，所有外链资源（字体、KaTeX）走 CDN。
+</p>
+
+<footer>
+  Built with care · Hosted on GitHub Pages · 持续更新中
+  <br>
+  © <span id="y"></span> luhan1999
+  <script>document.getElementById('y').textContent=new Date().getFullYear()</script>
+</footer>
+
+</div>
+</body>
+</html>
