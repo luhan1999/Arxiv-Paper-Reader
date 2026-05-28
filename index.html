@@ -48,6 +48,24 @@ footer a{color:#444}
 
 <div class="paper-list">
 
+  <a class="paper" href="MiMo-V2-Flash-Technical-Report/">
+    <span class="num">2026/01 · arXiv:2601.02780</span>
+    <h3 class="title">MiMo-V2-Flash Technical Report</h3>
+    <p class="authors">LLM-Core Xiaomi</p>
+    <p class="summary">
+      MiMo-V2-Flash 是 309B 总参 / 15B 激活的 MoE 模型，三大支柱：(1) <b>5:1 Hybrid Sliding Window Attention</b>（窗口仅 128 + 学习型 attention sink），KV 缓存与注意力计算降至约 1/6；(2) 轻量化 <b>Multi-Token Prediction</b> 既作训练目标也作 self-speculative draft，3 层 MTP 实测 <b>2.6× 解码加速</b>；(3) <b>MOPD（Multi-Teacher On-Policy Distillation）</b>把多领域 RL 教师的 token 级 reverse-KL 与 ORM 优势相加，缓解多技能跷跷板。SWE-Bench Multilingual 71.7 居开源第一。
+    </p>
+    <div class="tags">
+      <span class="tag k">MOPD</span>
+      <span class="tag">Hybrid SWA</span>
+      <span class="tag">Attention Sink</span>
+      <span class="tag">MTP</span>
+      <span class="tag">Speculative Decoding</span>
+      <span class="tag">Agentic RL</span>
+      <span class="tag">MoE</span>
+    </div>
+  </a>
+
   <a class="paper" href="DeepSeek-V3.2-Pushing-the-Frontier-of-Open-LLMs/">
     <span class="num">2025/12 · arXiv:2512.02556</span>
     <h3 class="title">DeepSeek-V3.2: Pushing the Frontier of Open Large Language Models</h3>

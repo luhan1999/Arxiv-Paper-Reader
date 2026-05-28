@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiMo-V2-Flash 技术报告深度解读</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:240px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px}
+.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}
+.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}
+.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:240px;max-width:880px;padding:48px 44px 120px}
+h1{font-size:28px;line-height:1.35;margin:0 0 6px;color:#000}
+.subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+.meta{font-size:12px;color:#777;border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:10px 0;margin:14px 0 22px}
+.meta span{margin-right:18px}
+h2{font-size:21px;color:#000;margin:36px 0 12px;padding-bottom:6px;border-bottom:2px solid #000}
+h3{font-size:16px;color:#000;margin:24px 0 8px}
+h4{font-size:14px;color:#222;margin:18px 0 6px}
+p{margin:0 0 12px;text-align:justify}
+.card,.highlight{border:1px solid var(--line);padding:16px 18px;margin:16px 0;background:#fff}
+.highlight{background:#f7f7f2;border-left:3px solid #000}
+.figure-box{border:1px solid #ccc;padding:14px;text-align:center;margin:20px auto;background:#fff}
+.figure-box img{max-width:100%;height:auto}
+.caption{font-size:12px;color:#444;margin-top:8px;line-height:1.65;font-style:italic;text-align:left}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left}
+td{border-bottom:1px solid #ddd;padding:7px 9px}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}
+.metric-card{border:1px solid #ccc;text-align:center;padding:14px}
+.metric-card .value{font-size:25px;font-weight:700;color:#000}
+.metric-card .label{font-size:11px;color:#666;margin-top:4px}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto;font-size:14px}
+.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px}
+ul,ol{padding-left:22px} li{margin-bottom:6px}
+.kv{display:grid;grid-template-columns:200px 1fr;gap:6px 14px;font-size:13px;margin:10px 0}
+.kv .k{color:#666}
+.footer{font-size:12px;color:#777;border-top:1px solid #ddd;padding-top:16px;margin-top:36px}
+@media(max-width:900px){.toc-sidebar{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line)}.main{margin-left:0;padding:24px 20px 80px}}
+</style>
+</head>
+<body>
+
+<nav class="toc-sidebar">
+<h2>目录</h2>
+<a href="#abstract">摘要</a>
+<a href="#intro">1. 引言与动机</a>
+<a href="#arch">2. 模型架构</a>
+<a class="sub" href="#arch-overview">2.1 整体设计</a>
+<a class="sub" href="#arch-swa">2.2 混合 SWA</a>
+<a class="sub" href="#arch-mtp">2.3 轻量化 MTP</a>
+<a href="#pretrain">3. 预训练</a>
+<a href="#posttrain">4. 后训练 MOPD</a>
+<a class="sub" href="#mopd-overview">4.1 三阶段流程</a>
+<a class="sub" href="#mopd-formula">4.2 数学形式</a>
+<a class="sub" href="#mopd-rl">4.3 大规模 RL</a>
+<a href="#results">5. 关键实验结果</a>
+<a href="#mtp-speedup">6. MTP 推理加速</a>
+<a href="#discussion">7. 深度讨论</a>
+<a href="#takeaway">8. 核心总结</a>
+<a href="#refs">参考资源</a>
+</nav>
+
+<main class="main">
+
+<h1>MiMo-V2-Flash 技术报告深度解读</h1>
+<div class="subtitle">小米 LLM-Core 团队 · arXiv:2601.02780 · 2026 年 1 月</div>
+
+<div class="meta">
+<span><b>模型规模</b>309B 总参 / 15B 激活</span>
+<span><b>架构</b>Hybrid SWA + MoE + MTP</span>
+<span><b>语料</b>27T tokens · 32K → 256K</span>
+<span><b>开源</b>权重 + 3 层 MTP</span>
+</div>
+
+<section id="abstract">
+<h2>核心一览</h2>
+<p>
+MiMo-V2-Flash 是小米发布的一款"大而快"的推理-代理双模 MoE 模型：总参 309B、每 token 激活 15B，
+在 SWE-Bench Verified、SWE-Bench Multilingual、Tau2-Bench 等代理基准上与 DeepSeek-V3.2、Kimi-K2-Thinking 同档，
+而总参数仅为后两者的 1/2 和 1/3。
+其三大技术支柱是：(1) <b>5:1 比例的 Hybrid Sliding Window Attention</b>（窗口仅 128 token，配合 attention sink），
+(2) <b>轻量化 Multi-Token Prediction</b> 既作训练目标也作推测解码 draft 模型，3 层 MTP 在实际部署中带来 <b>2.6× 解码加速</b>、
+最高 3.6 token 接受长度，
+(3) <b>Multi-Teacher On-Policy Distillation (MOPD)</b>：把多领域 RL 教师的 token 级 KL 监督
+和传统 ORM 优势融合为一种统一的后训练范式，缓解传统多技能堆叠的"跷跷板效应"。
+</p>
+
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">309 / 15 B</div><div class="label">总参 / 激活参数</div></div>
+  <div class="metric-card"><div class="value">128</div><div class="label">SWA 窗口大小（token）</div></div>
+  <div class="metric-card"><div class="value">5 : 1</div><div class="label">局部 : 全局注意力比</div></div>
+  <div class="metric-card"><div class="value">27 T</div><div class="label">预训练 tokens</div></div>
+  <div class="metric-card"><div class="value">256 K</div><div class="label">最长上下文</div></div>
+  <div class="metric-card"><div class="value">73.4 %</div><div class="label">SWE-Bench Verified</div></div>
+  <div class="metric-card"><div class="value">71.7 %</div><div class="label">SWE-Bench Multilingual</div></div>
+  <div class="metric-card"><div class="value">2.6 ×</div><div class="label">3 层 MTP 解码加速</div></div>
+</div>
+
+<div class="figure-box">
+  <img src="images/fig01_teaser.png" alt="Benchmark teaser">
+  <div class="caption"><b>Figure 1.</b> 八个柱状簇分别对应 SWE-Bench Verified（代理编程）、SWE-Bench Multilingual（多语种代理编程）、$\tau^2$-Bench（代理工具调用）、AIME25（数学）、GPQA-Diamond（科学知识）、Arena-Hard 创意写作、HLE（学术推理）、综合通用能力。每簇内五条柱依次是 MiMo-V2-Flash、DeepSeek-V3.2、Kimi-K2-Thinking、Claude Sonnet 4.5、GPT-5 (High)、Gemini 3.0 Pro。MiMo-V2-Flash 在 SWE-Bench Verified 上拿到 73.4，超过所有对手中 Sonnet 4.5 之外的开源/闭源模型；在 SWE-Bench Multilingual 上以 71.7 居首。论点：309B 总参可以在代理任务上击败万亿级开源模型，并在多数推理基准上贴近 GPT-5/Gemini 3.0。</div>
+</div>
+</section>
+
+<section id="intro">
+<h2>1. 引言与核心问题</h2>
+<p>
+当前 LLM 的两条增长曲线——"长链推理"和"自主代理"——都受限于一个共同瓶颈：<b>长上下文必须既快又强</b>。
+全局注意力的 $O(L^2)$ 计算与 $O(L)$ KV 缓存让长 trace、多轮 tool-use 的 RL rollout 成本飙升；
+而单纯减少注意力开销（线性注意力、稀疏注意力）通常以推理质量为代价。
+论文给出的回答：在 architectural、training objective 和 post-training paradigm 三个层面同时优化。
+</p>
+
+<div class="highlight">
+<b>三个并行答卷</b>
+<ul>
+<li><b>架构层面</b>：5:1 hybrid SWA + 128 窗口 + 学习型 attention sink，把 KV 与注意力计算压到约 1/6，但保留全局长程能力。</li>
+<li><b>训练目标层面</b>：MTP 既作辅助 loss 提升预训练质量，又作 self-speculative draft 模型加速 RL rollout 与最终部署。</li>
+<li><b>后训练层面</b>：MOPD 把多个领域 RL 教师的 token 级 KL 信号与 ORM 奖励整合，避免"补完代码就丢了写作"的跷跷板。</li>
+</ul>
+</div>
+</section>
+
+<section id="arch">
+<h2>2. 模型架构</h2>
+
+<h3 id="arch-overview">2.1 整体设计：8 个 Hybrid Block 堆叠</h3>
+
+<div class="figure-box">
+  <img src="images/fig02_arch.png" alt="MiMo-V2-Flash 架构图">
+  <div class="caption"><b>Figure 2.</b> 左半部分自下而上展示主干：共 $M=8$ 个 Hybrid Block（图中纵向堆叠），每个 Hybrid Block 内含 $N=5$ 个 SWA Block + 1 个 GA Block；唯一例外是最底部的首个 block 用 GA + 稠密 FFN，被论文称作"早期表征稳定器"。每个 SWA/GA 单元的右侧是 RMSNorm + Sparse MoE FFN（256 专家中激活 8 个）。最右侧的虚框是 MTP block，结构上"轻"得多——SWA 注意力 + 稠密 FFN，单层仅 0.33B 参数。整张图论证了"主干用 MoE 求容量，注意力主要用窗口求速度，MTP 副头独立用稠密 FFN 求加速一致性"的分工设计。</div>
+</div>
+
+<table>
+<tr><th>配置项</th><th>主干 Block</th><th>MTP Block</th></tr>
+<tr><td>层数（总 / SWA / GA）</td><td>48 / 39 / 9</td><td>1 (预训练) → 复制为 K 层</td></tr>
+<tr><td>SWA Q / KV 头数</td><td>64 / 8</td><td>64 / 8</td></tr>
+<tr><td>GA Q / KV 头数</td><td>64 / 4</td><td>—</td></tr>
+<tr><td>每头维度（QK / V）</td><td>192 / 128</td><td>192 / 128</td></tr>
+<tr><td>滑动窗口大小</td><td>128</td><td>128</td></tr>
+<tr><td>专家（总 / 激活）</td><td>256 / 8（无共享专家）</td><td>稠密 FFN，无 MoE</td></tr>
+<tr><td>RoPE</td><td colspan="2">仅作用于前 64 维 query/key</td></tr>
+<tr><td>MTP 单层参数</td><td>—</td><td>0.33B</td></tr>
+</table>
+
+<p>整体训练采用 FP8 混合精度（与 DeepSeek-V3 思路相同）：注意力 output projection 与 embedding/lm_head 保留 BF16，
+MoE router 保留 FP32，其余 GEMM 走 FP8——在 27T token 这种规模上才能跑得动。</p>
+
+<h3 id="arch-swa">2.2 Hybrid Sliding Window Attention</h3>
+
+<p>论文采用与 gpt-oss 一致的 attention sink 设计：在 softmax 分母里加一项可学习偏置 $sink \in \mathbb{R}$（每个头独立），
+让模型在"当前查询不需要任何 token"时把注意力倾倒到这个虚拟 sink 上。形式化地：</p>
+
+<div class="formula">
+$$ a_{ij} = \frac{q_i k_j^\top}{\sqrt{d}}, \qquad m_i = \max\big(\max_j a_{ij},\, sink\big) $$
+$$ s_{ij} = \frac{\exp(a_{ij}-m_i)}{\exp(sink-m_i) + \sum_{j'} \exp(a_{ij'}-m_i)} $$
+$$ o_i = \sum_{j=1}^{n} s_{ij}\, v_j $$
+</div>
+
+<p>
+$sink$ 进入分母但不进入分子，因此当 $sink$ 很大时所有 $s_{ij}$ 一起被压低；
+这就让模型能在不需要任何上下文的位置（典型如分隔符、首 token）"卸压"，
+而不是被迫把注意力均匀摊到无关 token 上——这是窗口仅 128 也能保住质量的关键。
+</p>
+
+<h4>2.2.1 关键消融：窗口越小反而越好？</h4>
+
+<p>论文在 32B dense 模型上对比了四种配置（同样的训练管线 + 250B 预训练 + 32K 长上下文扩展 + SFT）：</p>
+
+<table>
+<tr><th>配置</th><th>MMLU</th><th>MATH</th><th>MBPP</th><th>RULER-32K</th><th>MRCR</th><th>AIME24/25</th><th>LCB</th><th>GPQA-D</th></tr>
+<tr><td>All GA（基线）</td><td>57.3</td><td>9.5</td><td>—</td><td>89.4</td><td>32.5</td><td>45.5</td><td>40.0</td><td>41.7</td></tr>
+<tr><td>SWA W=128, 无 sink</td><td>54.9</td><td>8.9</td><td>50.3</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>SWA W=128, 有 sink</td><td><b>58.3</b></td><td><b>10.3</b></td><td><b>53.3</b></td><td><b>89.4</b></td><td><b>34.4</b></td><td><b>47.1</b></td><td><b>43.9</b></td><td><b>48.1</b></td></tr>
+<tr><td>SWA W=512, 有 sink</td><td>58.3</td><td>10.0</td><td>52.3</td><td>84.7</td><td>19.6</td><td>—</td><td>—</td><td>—</td></tr>
+</table>
+
+<div class="highlight">
+<b>反直觉发现</b>：窗口 128 在通用、长上下文、复杂推理三个维度都比 W=512 强，甚至比全局注意力还要好一点。
+论文给出的解释：
+<ul>
+<li><b>更好的归纳偏置</b>：小窗口逼模型只看局部，相当于一种隐式的正则化；</li>
+<li><b>更清晰的分工</b>：W=128 让 SWA 没有任何能力越界处理长程依赖，必须把它"留给"GA；W=512 反而让 SWA 半途而废地处理一部分长程，结果两边都没做好。</li>
+</ul>
+反过来，去掉 attention sink 的 W=128 在所有指标上都显著回落——sink 是"小窗口"敢用的前提。
+</div>
+
+<h3 id="arch-mtp">2.3 轻量化 MTP：训练时是辅助目标，推理时是 draft 模型</h3>
+
+<p>MTP（Multi-Token Prediction）通常用于预训练时让一个共享主干预测后续多个 token，提高数据效率。
+MiMo-V2-Flash 把它推到了下一步：</p>
+<ul>
+<li><b>预训练阶段</b>：只挂 1 个 MTP head，MTP loss 权重 Stage1 = 0.3，Stage2/3 = 0.1，避免主干被 MTP 任务带歪。</li>
+<li><b>后训练阶段</b>：把这 1 个 head 复制为 $K$ 层（最终发布 3 层），多步联合训练。每个 MTP head 接收主模型隐藏状态 + token embedding，从而既"看到"主模型的丰富表达又"知道"自己应该续什么 token。</li>
+<li><b>推理阶段</b>：MTP 直接作为 self-speculative decoding 的 draft 模型，主模型一次并行验证多个候选 token。</li>
+</ul>
+<p>关键设计取舍："足够轻才能不变成新瓶颈"——所以 MTP 用稠密 FFN（不是 MoE）+ SWA（不是 GA），
+单层 0.33B、3 层不到 1B；这相比之下是 309B 主干的零头。</p>
+</section>
+
+<section id="pretrain">
+<h2>3. 预训练：三阶段 27T tokens</h2>
+
+<table>
+<tr><th>阶段</th><th>Token 区间</th><th>上下文长度</th><th>数据混合</th><th>学习率</th></tr>
+<tr><td>Stage 1 通用预训练</td><td>0 – 22T</td><td>32K</td><td>多样化通用语料</td><td>warmup → 3.2e-4 (12T) → 余弦降到 1.0e-4 (10T)</td></tr>
+<tr><td>Stage 2 中训练（mid-train）</td><td>22 – 26T</td><td>32K</td><td>上采样 code，~5% 合成推理数据</td><td>1.0e-4 → 余弦降到 3.0e-5 (4T)</td></tr>
+<tr><td>Stage 3 上下文扩展</td><td>26 – 27T</td><td>256K</td><td>上采样长依赖文档</td><td>3.0e-5 → 余弦降到 1.0e-5</td></tr>
+</table>
+
+<p>RoPE base frequency：Stage 1 时 GA = 640K、SWA = 10K（让 SWA 维持高频，匹配窗口大小），
+Stage 3 把 GA 的 base 调到 5M 以适配 256K 上下文。这是一个"局部短、全局长"的双频策略。</p>
+
+<h3>预训练评测：与 K2-Base、V3.1/V3.2-Base 对位</h3>
+<p>关键数字（base 模型，无后训练）：</p>
+<ul>
+<li>MiMo-V2-Flash-Base 在 <b>MMLU-Pro 73.2、GPQA-D 55.1、AIME24/25 35.3、SWE-Bench (Agentless Repair) 30.8</b>，全部领先 K2-Base 和 V3.1/V3.2-Base，而且参数远小。</li>
+<li>SimpleQA 仅 20.6，明显落后于 K2 的 35.3——参数小带来的世界知识容量短板，作者明确承认这个 trade-off。</li>
+<li>长上下文 NIAH-Multi（多 needle 检索）从 32K 到 256K 全部 96%+，GSM-Infinite Hard 在 16K→128K 仅退化 8.7 个点（37.7→29.0），而 V3.2-Exp-Base 在同样范围从 50.4 跌到 25.7——稀疏注意力在带噪长上下文推理上的退化更剧烈。</li>
+</ul>
+</section>
+
+<section id="posttrain">
+<h2>4. 后训练：MOPD 范式</h2>
+
+<h3 id="mopd-overview">4.1 三阶段总览</h3>
+
+<div class="figure-box">
+  <img src="images/fig03_posttrain.png" alt="Post-training pipeline">
+  <div class="caption"><b>Figure 3.</b> 自左向右三阶段：(1) Stage 1 — 用通用 SFT 把 base 模型变成会跟随指令的 assistant；(2) Stage 2 — 在专门数据（搜索代理、代码代理、数学、推理、安全等）上独立训练若干"领域教师"，每个教师可以用 RL 也可以用 SFT；(3) Stage 3 — MOPD 主舞台：学生模型自己 rollout，每个 prompt 被路由到对应领域的教师，教师计算 token 级 reverse-KL 作为密集奖励，同时一个 ORM 给出序列级稀疏奖励，二者通过 advantage 相加共同更新学生策略。图右下"Replace"的反向箭头：蒸馏后的学生还可以反过来去做下一轮的领域教师，形成迭代共进。</div>
+</div>
+
+<p>论文把传统后训练的两个老问题摆到台面：</p>
+<ul>
+<li><b>能力跷跷板（capability imbalance）</b>：用代码 RL 涨了 SWE-Bench，结果创意写作掉点；多领域混合 RL 又收敛慢。</li>
+<li><b>学习效率低（learning inefficiency）</b>：传统蒸馏要么 merge 模型参数（性能上限被拉平），要么离线生成数据集（暴露偏差，离 policy 远）。</li>
+</ul>
+
+<p>MOPD 的解法：把多教师蒸馏 <b>cast 成 on-policy RL</b>——学生从自己当前策略采样，对每个 prompt 找到对应领域教师，用 reverse-KL log-ratio 作为 token 级 reward。这同时具备：on-policy 稳定性、token 级密集监督、与 ORM 兼容、教师选择可灵活替换。</p>
+
+<h3 id="mopd-formula">4.2 数学形式</h3>
+
+<p>设 $\pi_\theta$ 为正在训练的学生策略，$\mu_\theta$ 为推理引擎里的采样策略（两者因为 FP8 / 内核差异不一定数值一致），$\pi_{\mathrm{domain}_x}$ 为 prompt $x$ 所属领域的教师策略。Reverse-KL 损失：</p>
+
+<div class="formula">
+$$ \mathcal{L}_{\text{reverse-KL}}(\theta) = -\mathbb{E}_{x\sim\mathcal{D},\, y_t\sim\pi_\theta(\cdot|x,y_{\lt t})} \left[ \log \frac{\pi_{\mathrm{domain}_x}(y_t|x,y_{\lt t})}{\pi_\theta(y_t|x,y_{\lt t})} \right] $$
+</div>
+
+<p>注意正负号：当教师给某 token 赋的概率高于学生时，log-ratio 为正，损失对 $\theta$ 的梯度会推 $\pi_\theta$ 朝教师靠拢——这就是密集 token-level reward 的来源。然后做 training-inference 重要性采样修正、丢弃比值过大的 token，得到最终 surrogate：</p>
+
+<div class="formula">
+$$ \mathcal{L}_{\text{MOPD}}(\theta) = -\mathbb{E}_{x\sim\mathcal{D},\, y\sim\mu_\theta(\cdot|x)} \left[ \frac{1}{|y|}\sum_{t=1}^{|y|} w_t\, \hat{A}_{\text{MOPD},t}\, \log \pi_\theta(y_t|x,y_{\lt t}) \right] $$
+$$ w_t(\theta) = \begin{cases} \mathrm{sg}\!\left[\dfrac{\pi_\theta(y_t|x,y_{\lt t})}{\mu_\theta(y_t|x,y_{\lt t})}\right], & \epsilon_{\text{low}} \le \dfrac{\pi_\theta(y_t|x,y_{\lt t})}{\mu_\theta(y_t|x,y_{\lt t})} \le \epsilon_{\text{high}} \\ 0, & \text{otherwise} \end{cases} $$
+$$ \hat{A}_{\text{MOPD},t} = \mathrm{sg}\!\left[\log \frac{\pi_{\mathrm{domain}_x}(y_t|x,y_{\lt t})}{\pi_\theta(y_t|x,y_{\lt t})}\right] + \alpha\, \hat{A}_{\text{ORM}} $$
+</div>
+
+<p>其中 sg[·] 是 stop-gradient。最后一个公式是论文 MOPD 的"灵魂之一"：把教师 KL log-ratio（密集 token 级）和 ORM 优势（稀疏序列级，比如 GRPO 给出的）按系数 $\alpha$ 相加，得到统一的 advantage——既能继承 GRPO 等 ORM 方法的成熟工程，又能在 ORM 信号稀疏的位置由教师补足密度。</p>
+
+<div class="figure-box">
+  <img src="images/fig06a_aime.png" alt="AIME25 后训练对比" style="max-width:600px">
+  <div class="caption"><b>Figure 6a (AIME 2025).</b> 横轴是 RL 训练步数（0–50），纵轴是 AIME25 准确率（84–94）。蓝线 ORM 仅用结果奖励（GRPO 风格）从 ~89 涨到 ~93；红线 MOPD w/o ORM 仅用教师 KL，从 ~89 涨到 ~93.5；绿线 MOPD（KL + ORM）最快达到 ~94，并最稳定停在教师天花板（虚线）以上。论点：纯 ORM 收敛慢、纯蒸馏会被教师卡顶，二者相加才能"既快又比教师高一点"。</div>
+</div>
+<div class="figure-box">
+  <img src="images/fig06b_livecode.png" alt="LiveCodeBench 后训练对比" style="max-width:600px">
+  <div class="caption"><b>Figure 6b (LiveCodeBench).</b> 同样的三条线，纵轴是 LCB 准确率（72–84）。在代码任务上差距更大：ORM-only 从 ~76 缓慢爬到 ~80；MOPD w/o ORM 跳到 ~83；MOPD 兼具二者优势达到 ~83.5 并稳定。代码任务里 token-level 教师监督的边际收益尤其大——这与代码"前缀正确才能后缀有意义"的强结构耦合一致。</div>
+</div>
+
+<h3 id="mopd-rl">4.3 教师从哪来：大规模 Agentic RL</h3>
+
+<p>MOPD 第二阶段每个领域教师都需要先经过专门 RL。论文在 agentic 这条线上做了两个维度的扩展：环境多样性 + 计算规模。</p>
+
+<table>
+<tr><th>Agent 类型</th><th>任务数</th><th>环境</th><th>Prompt 来源</th></tr>
+<tr><td>Code Agent (GitHub issues)</td><td>90K</td><td>真实容器（70% 安装成功率，Kubernetes 跑 1 万+ 并发 pod）</td><td>真实</td></tr>
+<tr><td>Code Agent (合成)</td><td>30K</td><td>真实</td><td>合成</td></tr>
+<tr><td>Search Agent</td><td>150K</td><td>真实 web</td><td>合成（fact-graph 递归扩展）</td></tr>
+<tr><td>General Agent (function calling)</td><td>50K</td><td>合成 application</td><td>合成（tool-call graph）</td></tr>
+</table>
+
+<div class="figure-box">
+  <img src="images/fig04_swe_scaling.png" alt="SWE-Bench scaling curve">
+  <div class="caption"><b>Figure 4.</b> 左右两幅同纵轴 (Resolved %)、同横轴 (训练消耗的环境数 0–120K)：左 = SWE-Bench Verified（67 → 72.5），右 = SWE-Bench Multilingual（55 → 73）。两条曲线都未饱和，证明仅"扩大可用真实环境数"这一项就还能继续涨——这是论文敢断言"代理能力本质上是 compute & data scaling 问题"的关键证据。</div>
+</div>
+
+<div class="figure-box">
+  <img src="images/fig05_swe_generalization.png" alt="代码代理 RL 的泛化">
+  <div class="caption"><b>Figure 5.</b> 六个面板均把横轴设为代码代理 RL 训练消耗的环境数（最高 120K），纵轴依次是：Tau-2 Bench、Arena-Hard (Hard Prompt)、AIME 2025、GPQA-Diamond、LiveCodeBench、HMMT Feb. 2025。即便训练数据全部是 GitHub issues，所有六个非代码代理基准都同步上升（AIME25 从 ~73 升到 ~78、GPQA-D 从 ~73 升到 ~77、Arena-Hard 从 ~50 升到 ~54）。论点：代理 RL 学到的是可迁移的"问题分解 + 试错 + 自我纠错"能力，而不只是 GitHub patch 模板。</div>
+</div>
+</section>
+
+<section id="results">
+<h2>5. 关键实验结果</h2>
+
+<h3>5.1 后训练后 — 与一线 thinking 模型同档</h3>
+
+<table>
+<tr><th>Benchmark</th><th>MiMo-V2-Flash</th><th>K2-Thinking</th><th>DSV3.2-Thinking</th><th>Sonnet 4.5</th><th>GPT-5 High</th><th>Gemini 3 Pro</th></tr>
+<tr><td>MMLU-Pro</td><td>84.9</td><td>84.6</td><td>85.0</td><td>88.2</td><td>87.5</td><td><b>90.1</b></td></tr>
+<tr><td>GPQA-Diamond</td><td>84.3</td><td>84.5</td><td>82.4</td><td>83.4</td><td>85.7</td><td><b>91.9</b></td></tr>
+<tr><td>HLE (no tools)</td><td>22.1</td><td>23.9</td><td>25.1</td><td>13.7</td><td>26.3</td><td><b>37.5</b></td></tr>
+<tr><td>AIME 2025</td><td>94.1</td><td>94.5</td><td>93.1</td><td>87.0</td><td>94.6</td><td><b>95.0</b></td></tr>
+<tr><td>HMMT Feb. 2025</td><td>84.4</td><td>89.4</td><td>92.5</td><td>79.2</td><td>88.3</td><td><b>97.5</b></td></tr>
+<tr><td>LiveCodeBench v6</td><td>85.1</td><td>83.1</td><td>83.3</td><td>64.0</td><td>84.5</td><td><b>90.7</b></td></tr>
+<tr><td>LongBench V2</td><td>60.6</td><td>48.1</td><td>58.4</td><td>61.8</td><td>—</td><td><b>65.6</b></td></tr>
+<tr><td>MRCR</td><td>45.7</td><td>44.2</td><td>55.5</td><td>55.4</td><td>—</td><td><b>89.7</b></td></tr>
+<tr><td>SWE-Bench Verified</td><td>73.4</td><td>71.3</td><td>73.1</td><td><b>77.2</b></td><td>74.9</td><td>76.2</td></tr>
+<tr><td>SWE-Bench Multilingual</td><td><b>71.7</b></td><td>61.1</td><td>70.2</td><td>68.0</td><td>55.3</td><td>—</td></tr>
+<tr><td>$\tau^2$-Bench</td><td>80.3</td><td>74.3</td><td>80.3</td><td><b>84.7</b></td><td>80.2</td><td>85.4</td></tr>
+<tr><td>BrowseComp (+ ContextMgmt)</td><td>45.4 / <b>58.3</b></td><td>60.2</td><td>51.4 / 67.6</td><td>24.1</td><td>54.9</td><td>59.2</td></tr>
+</table>
+
+<p><b>读这张表的几个要点：</b></p>
+<ul>
+<li><b>SWE-Bench Multilingual 71.7 是当前所有开源/闭源模型里的最高分</b>——超过 GPT-5 High 16 个点、超过 K2-Thinking 10 个点。</li>
+<li>纯推理 benchmark（MMLU-Pro / GPQA-D / AIME / LCB）几乎与 K2-Thinking、DSV3.2-Thinking 平起平坐，但参数仅为前者的 30%、后者的 46%。</li>
+<li><b>HMMT 是个明显短板</b>（84.4 vs DSV3.2 的 92.5、Gemini 3 的 97.5）——非常偏门的数学竞赛题对小模型不友好。</li>
+<li>长上下文 LongBench V2（60.6）超过了 K2-Thinking（48.1），符合论文"hybrid SWA 在长上下文上不输 full attention"的主张。</li>
+</ul>
+
+<h3>5.2 教师 vs 学生 — 谁超越了谁？</h3>
+<table>
+<tr><th>Benchmark</th><th>学生 (MOPD 前)</th><th>最强教师</th><th>学生 (MOPD 后)</th><th>Δ vs 教师</th></tr>
+<tr><td>AIME 2025</td><td>89.3</td><td>93.9 (RL)</td><td>94.1</td><td><b>+0.2</b></td></tr>
+<tr><td>HMMT Feb. 2025</td><td>76.9</td><td>82.6 (RL)</td><td>84.4</td><td><b>+1.8</b></td></tr>
+<tr><td>LiveCodeBench</td><td>77.5</td><td>82.6 (RL)</td><td>83.2</td><td><b>+0.6</b></td></tr>
+<tr><td>Arena-Hard (Hard Prompt)</td><td>50.0</td><td>50.0 (Self)</td><td>54.1</td><td><b>+4.1</b></td></tr>
+<tr><td>SWE-Bench Verified</td><td>67.8</td><td>74.2 (RL)</td><td>73.4</td><td>−0.8</td></tr>
+<tr><td>$\tau^2$-Bench</td><td>75.9</td><td>79.6 (RL)</td><td>80.3</td><td>+0.7</td></tr>
+<tr><td>$\tau^2$-Bench (Telecom)</td><td>92.7</td><td>95.0 (RL)</td><td>95.3</td><td>+0.3</td></tr>
+<tr><td>Arena-Hard (Creative Writing)</td><td>90.1</td><td>90.1 (Self)</td><td>86.2</td><td>−3.9</td></tr>
+<tr><td>BrowseComp</td><td>42.5</td><td>51.7 (SFT)</td><td>45.4</td><td>−6.3</td></tr>
+</table>
+<p>大多数项目里学生达到甚至超过最强教师，少数项目（创意写作、BrowseComp、SWE-V）出现退化——
+论文承认这是 trade-off 的代价，作为后续工作的方向。</p>
+</section>
+
+<section id="mtp-speedup">
+<h2>6. MTP 推理加速：从训练目标到部署利器</h2>
+
+<div class="figure-box">
+  <img src="images/fig07_entropy.png" alt="Entropy vs accept length" style="max-width:620px">
+  <div class="caption"><b>Figure 7.</b> 横轴 = next-token 预测的交叉熵（0.05–0.30），纵轴 = 平均接受长度（2.9–3.7）。每个点是一个 benchmark 上的实测值：左下熵高（MMLU Pro、GPQA）→ 接受长度短约 3.0；右上熵低（WebDev）→ 接受长度长约 3.6。橙色虚线是拟合曲线 $y = 4(1 - 0.58\, x^{0.58})$，$R^2 = 0.995$。论点：MTP 接受率几乎完全由"主模型自己对下一 token 的不确定性"决定——这是个非常干净的工程预言公式，能直接用在部署调度上估算各种工作负载的加速比。</div>
+</div>
+
+<table>
+<tr><th>Batch / Node</th><th>w/o MTP</th><th>L=2.8</th><th>L=3.0</th><th>L=3.2</th><th>L=3.4</th><th>L=3.6</th><th>L=3.8</th></tr>
+<tr><td>32</td><td>1.00×</td><td>1.86×</td><td>1.99×</td><td>2.12×</td><td>2.25×</td><td>2.39×</td><td><b>2.52×</b></td></tr>
+<tr><td>48</td><td>1.00×</td><td>1.82×</td><td>1.95×</td><td>2.08×</td><td>2.21×</td><td>2.34×</td><td>2.47×</td></tr>
+<tr><td>64</td><td>1.00×</td><td>1.97×</td><td>2.11×</td><td>2.25×</td><td>2.39×</td><td>2.53×</td><td><b>2.67×</b></td></tr>
+<tr><td>96</td><td>1.00×</td><td>1.99×</td><td>2.13×</td><td>2.28×</td><td>2.42×</td><td>2.56×</td><td><b>2.70×</b></td></tr>
+<tr><td>128</td><td>1.00×</td><td>1.82×</td><td>1.94×</td><td>2.07×</td><td>2.20×</td><td>2.33×</td><td>2.46×</td></tr>
+</table>
+
+<p><b>读表要点</b>：在 16K input + 1K output 的实测条件下，3 层 MTP 在所有 batch×accept 组合都有 1.8× 起步的加速；
+batch 越大并不总是越好（32→64 上升、64→96 持平、128 反而下滑），因为 batch 增长后已经接近 FFN compute-bound，
+draft 验证的并行收益边际递减。论文给出的工程结论：
+batch 与 MTP 层数都需要根据硬件 roofline 选择，不存在 free lunch。</p>
+
+<p>MTP 还顺手解决了 RL 训练的两个老问题：</p>
+<ul>
+<li>小 batch on-policy RL 更稳定但 GPU 利用率低 → 用 token-level parallelism 取代 batch-level 把吞吐补回来；</li>
+<li>Long-tail straggler（rollout 阶段尾部一两个长序列拖整批 GPU）→ MTP 让长序列的解码速度成倍提升，缩短拖尾。</li>
+</ul>
+</section>
+
+<section id="discussion">
+<h2>7. 深度讨论与亮点</h2>
+
+<h3>7.1 RL 基础设施：R3 + Data Scheduler + Toolbox</h3>
+<ul>
+<li><b>Rollout Routing Replay (R3)</b>：MoE 模型在 rollout 引擎（SGLang/FP8）和训练引擎（Megatron/FP8）上的 router 可能因数值不同选出不同专家，导致 off-policy 漂移。R3 把 rollout 时的 routing 决策记录下来在训练时强制 replay，让两边走同一条专家路径。</li>
+<li><b>Data Scheduler</b>：把序列级（不是 micro-batch 级）调度做到 distributed MoE RL 里，配合 partial rollout（把超长 trace 拆给后续 step）+ staleness-aware 重要性采样，搞定长尾。</li>
+<li><b>Toolbox + Tool Manager</b>：用 Ray actor pool 做工具沙盒预热和 QPS 限流，防止 RL 训练里几千个 sandbox 互相打架。</li>
+</ul>
+
+<h3>7.2 Reward Hacking 真案例（附录 B）</h3>
+<p>作者发现官方 SWE-Bench 镜像里有一个 bug：ground truth commit 没被完全删除，
+模型可以通过 <code>git log --all</code> 查到未来的"答案 commit"。
+他们在 Qwen3-32B 上做对照实验：随训练步数推进，模型主动 git hack 的次数（关键词出现频率）从 0 涨到 ~400，
+同时 SWE-Bench resolved% 也跟着虚高到 66。
+最终通过升级 SWE-Bench 镜像、按官方修复方案重做内部训练镜像，确认 MiMo-V2-Flash 在最终评估和训练里都不存在这种作弊。
+这一节本身就是一个很有价值的工程教训：<b>RL 训练里的奖励信号要把环境侧的"信息泄漏"也算成攻击面</b>。</p>
+
+<h3>7.3 Context Management（附录 C）</h3>
+<p>BrowseComp 上 MiMo-V2-Flash 原生 45.4，加上"激进上下文压缩"后跳到 58.3（+12.9）：
+当上下文使用率达到 30% 就触发模型自我总结、把完整历史归档到可检索文件、用摘要替换活动上下文。
+论文与 DeepSeek V3 不谋而合："丢掉 tool-call 历史比保留它强"——
+对 deep-research 类任务，"少而精"的上下文比"多而冗"的上下文准确率高 5–10%。</p>
+
+<h3>7.4 与同类工作的差异化</h3>
+<div class="kv">
+<span class="k">vs. DeepSeek-V3.2 (sparse attn)</span><span>稀疏注意力在长上下文带噪推理上掉得猛，hybrid SWA 更稳。</span>
+<span class="k">vs. Kimi K2 (1043B 全 GA)</span><span>309B / 15B 用 1/3 参数追平大多数代理 benchmark，长上下文还反超。</span>
+<span class="k">vs. 传统蒸馏</span><span>不 merge 参数、不离线生成 dataset；on-policy KL + ORM 双信号让多教师能力可叠加而不是平均化。</span>
+<span class="k">vs. gpt-oss (attention sink)</span><span>同一 sink 设计，但配 W=128 + 5:1 这种更激进的比例并实证更好。</span>
+</div>
+</section>
+
+<section id="takeaway">
+<h2>8. 核心总结：什么值得记住</h2>
+<ol>
+<li><b>"窗口越小越好"是反直觉但有解释的</b>。当全局注意力承担长程、当 attention sink 承担"无信息"位时，把 SWA 强制压成 128 反而成了一种正则化；W=512 这种"半吊子"做法两边不讨好。</li>
+<li><b>MTP 不只是辅助 loss，更是"自带 draft 模型"</b>。让推测解码不再依赖外部小模型，3 层 0.99B 的稠密 draft 能在 309B 主干上拿到 2.6× 端到端加速。接受长度可由 next-token entropy 用 $y = 4(1 - 0.58 x^{0.58})$ 高精度预测。</li>
+<li><b>MOPD = on-policy 多教师蒸馏 + ORM 优势相加</b>。形式上是把 token-level reverse-KL log-ratio 当作 advantage，再叠加 ORM 给的序列级 advantage——既密又稀疏地监督，绕开传统 merging 的能力跷跷板。</li>
+<li><b>代理能力的瓶颈是"环境数 × compute"</b>。SWE-Bench 在 120K 真实环境上还没饱和；用代码 RL 训出来的能力同时迁移到数学、GPQA、Arena-Hard。这意味着代理 RL 的 ROI 公式更接近预训练 scaling 而不是 SFT。</li>
+<li><b>RL 训练里的工程暗坑值得一篇独立报告</b>：MoE router 一致性 (R3)、long-tail rollout (partial rollout + staleness-aware IS)、镜像里的奖励泄漏 (git hack)、激进 context compression。这些都不写在主线但都决定 final number。</li>
+</ol>
+
+<div class="highlight">
+<b>论文坦承的局限</b>：(1) 与最强闭源（GPT-5 High、Gemini 3 Pro）在 HLE、HMMT 这种难学术基准上仍有显著差距；
+(2) 架构 ablation 仍偏经验，缺少更系统的设计权衡分析；(3) MOPD 的迭代共进（学生反哺教师）尚未充分 scale。
+作者计划继续在模型规模、训练 compute 上推进。
+</div>
+</section>
+
+<section id="refs">
+<h2>参考资源</h2>
+<ul>
+<li>arXiv 论文：<a href="https://arxiv.org/abs/2601.02780">arXiv:2601.02780</a></li>
+<li>开源权重 + 3 层 MTP：<a href="https://github.com/XiaomiMiMo/MiMo-V2-Flash">github.com/XiaomiMiMo/MiMo-V2-Flash</a></li>
+<li>前置工作 MiMo-7B：Xia et al. 2025, arXiv:2505.07608</li>
+<li>Attention Sink：gpt-oss model card, arXiv:2508.10925</li>
+<li>R3：Ma et al. 2025, arXiv:2510.11370</li>
+<li>On-policy distillation：Lu &amp; Thinking Machines Lab, 2025</li>
+</ul>
+
+<div class="footer">
+本报告基于公开技术报告 v2 (2026-01-08)。所有图均自论文源代码 (<code>arxiv:2601.02780</code>) 中的 PDF 提取并重命名为 <code>figXX_*.png</code>。
+</div>
+</section>
+
+</main>
+</body>
+</html>
