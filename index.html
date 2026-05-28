@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Arxiv Paper Reader · 论文深度解读合集</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
 <style>
 :root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
 *{box-sizing:border-box}
@@ -47,6 +51,25 @@ footer a{color:#444}
 <h2>论文列表</h2>
 
 <div class="paper-list">
+
+  <a class="paper" href="GLM-5-Technical-Report/">
+    <span class="num">2026/02 · arXiv:2602.15763</span>
+    <h3 class="title">GLM-5: from Vibe Coding to Agentic Engineering</h3>
+    <p class="authors">GLM-5 Team · Zhipu AI &amp; Tsinghua University</p>
+    <p class="summary">
+      GLM-5 是 <b>744B 总参 / 40B 激活</b> 的下一代 MoE 旗舰，首个 AA Intelligence Index v4.0 拿到 <b>50</b> 的开源模型。技术四件套：(1) <b>MLA + Muon Split + MLA-256</b> 让 latent attention 追平 GQA-8 同时降低 decoding 成本；(2) <b>共享参数 3 层 MTP</b> draft 模型 acceptance 长度 2.76 高于 DeepSeek-V3.2 的 2.55；(3) 在 base 上做 <b>DSA 持续预训练</b>，仅 20B token 即把 sparse attention 在长文本上无损切换；(4) 全异步 RL（slime）+ <b>TITO Gateway</b> + 双侧 importance sampling + 跨阶段在线蒸馏，让 100k 级 long-horizon agent rollout 不阻塞训练。SWE-Bench Verified 77.8、Vending-Bench 2 一年余额 4,432 USD。
+    </p>
+    <div class="tags">
+      <span class="tag k">Agentic Engineering</span>
+      <span class="tag">DSA</span>
+      <span class="tag">MLA + Muon Split</span>
+      <span class="tag">Shared MTP</span>
+      <span class="tag">Async RL</span>
+      <span class="tag">TITO Gateway</span>
+      <span class="tag">Cross-Stage Distillation</span>
+      <span class="tag">Chinese Chips</span>
+    </div>
+  </a>
 
   <a class="paper" href="MiMo-V2-Flash-Technical-Report/">
     <span class="num">2026/01 · arXiv:2601.02780</span>
