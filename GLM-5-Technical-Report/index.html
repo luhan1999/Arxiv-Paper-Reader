@@ -54,6 +54,7 @@ ul,ol{padding-left:22px} li{margin-bottom:6px}
 <a href="#abstract">摘要</a>
 <a href="#intro">1. 引言：从 Vibe Coding 到 Agentic Engineering</a>
 <a href="#arch">2. 模型架构</a>
+<a class="sub" href="#arch-overview">2.0 整体配置一览</a>
 <a class="sub" href="#arch-mla">2.1 MLA + Muon Split</a>
 <a class="sub" href="#arch-mtp">2.2 共享参数 MTP</a>
 <a class="sub" href="#arch-dsa">2.3 DSA 持续预训练</a>
@@ -153,83 +154,199 @@ GLM-5 把后者作为模型设计的<b>第一性目标</b>。</p>
 <section id="arch">
 <h2>2. 模型架构</h2>
 
+<p>架构层是论文最"工程密度"的一节。GLM-5 没有发明新范式——它的所有组件都来自现成路线（MoE / MLA / MTP / DSA），
+但每一个组件都被作者拆开做了一处"反共识"的细化：MoE 用 256 expert 配 80 层平衡通信与容量；
+MLA 用 <b>Muon Split</b> 修复优化器粒度问题；MTP 用 <b>3 层共享参数</b> 把训练-推理一致性拉回；
+DSA 用 <b>1000 步 indexer warmup + 20B token</b> 完成 dense → sparse 切换，整体预算只有 DSV3.2 的 1/47。
+本节按"整体 → 注意力主干 → 多 token 头 → 长上下文升级 → 替代方案对比"五个层次展开。</p>
+
+<h3 id="arch-overview">2.0 整体配置一览：744B/40B 是怎么搭出来的</h3>
+
+<div class="card">
+<b>MoE 维度（与 GLM-4.5 / DSV3 直接对比）</b>
+<div class="kv">
+<div class="k">总参数 / 激活参数</div><div>744 B / 40 B（GLM-4.5 是 355 B / 32 B；翻倍总量、激活只扩 25%）</div>
+<div class="k">Transformer 层数</div><div><b>80 层</b>（刻意比 DSV3 的 61 层多但比 GLM-4.5 少层）</div>
+<div class="k">专家数</div><div><b>256 routed experts</b> + 共享 expert（同 DSV3 范式）；细粒度 MoE 让单 token 激活分散到更多 expert，路由信息熵更高</div>
+<div class="k">注意力</div><div>MLA-256 + Muon Split（pre-train / mid-train），最后用 DSA 替换为可变长 sparse attention</div>
+<div class="k">最长上下文</div><div>4 K → 32 K → 128 K → 200 K（mid-training 三段渐进）；DSA 持续预训练再固化 200 K 行为</div>
+<div class="k">Multi-token Prediction</div><div>3 层 MTP，参数全部共享，推理 4 步 spec decoding</div>
+<div class="k">优化器</div><div>Muon（with Muon Split + 零冗余分布式实现）</div>
+<div class="k">总训练 token</div><div>28.5 T（27 T pre-training + 1 T 32K + 500 B 128K + 50 B 200K + ~20 B DSA）</div>
+</div>
+</div>
+
+<p>论文在 §2.1 一开头就明说："scales to 256 experts and reduces its layer count to 80 to minimize expert parallelism communication overhead"——
+80 层不是炫技，而是<b>专门为 EP 通信减负而选的</b>。256 experts 在 EP-32 / EP-64 这种典型部署下，每个 EP rank 持有 4–8 个 expert，
+配合 80 层就能把"层数 × dispatch/combine 通信"的总量与 GLM-4.5 拉平，否则 744B 的 expert 总量会让通信开销翻倍。</p>
+
 <h3 id="arch-mla">2.1 MLA + Muon Split + MLA-256：让 latent attention 追平 GQA-8</h3>
 
-<p>论文先承认了一个反共识：直接用 MLA（576 维 latent KV）配合 Muon 优化器，<b>性能不如 GQA-8</b>（2048 维 KV）。
-作者把根因归到 Muon 的 matrix orthogonalization 应用粒度——原 recipe 在 $W^{UQ}, W^{UK}, W^{UV}$ 这种"all heads merged"的大矩阵上做正交化，
-不同头被强制以同一尺度更新。</p>
+<h4>(a) Muon 优化器为什么会让 MLA 输给 GQA-8？</h4>
 
-<p>解法叫 <b>Muon Split</b>：把这些大矩阵<b>按 head 切成多个独立小矩阵</b>，对每个独立小矩阵分别做正交化，
-让不同头的投影权重可以以不同尺度更新。一个表说话：</p>
+<p>论文先承认了一个反共识：直接用 MLA（576 维 latent KV）配合 Muon 优化器，<b>性能不如 GQA-8</b>（2048 维 KV）。
+要看懂为什么，需要回到 Muon 的核心动作：在每一步对参数矩阵做 <b>matrix orthogonalization</b>（用 Newton-Schulz 迭代把 $\Delta W$ 投影到正交流形上），
+让所有奇异值统一到 1 附近，从而让不同方向的更新尺度一致。这种"统一尺度"在 dense MLP 上是优点，
+但在 attention 投影上变成了缺点——当多头共享一个大矩阵时，正交化把所有 head 的更新强行同步，等价于<b>剥夺了不同 head 学习不同尺度特征的自由度</b>。</p>
+
+<p>具体到 GLM-4.5 的旧 recipe：MLA 的上投影 $W^{UQ} \in \mathbb{R}^{d_c \times n_h d_h}$、$W^{UK}, W^{UV}$ 都是"all heads merged"的拼合矩阵
+（$d_c$ 是 latent 维、$n_h$ 是头数、$d_h$ 是单头维）。Muon 在这个 $d_c \times n_h d_h$ 大矩阵上做一次正交化，
+相当于强迫 $n_h$ 个 head 共享同一组奇异值——这正是 GQA（每组 head 共享 KV）能容忍但 MLA（每个 head 独立投影）容忍不了的地方。</p>
+
+<h4>(b) Muon Split：按 head 切分再分别正交化</h4>
+
+<p>解法叫 <b>Muon Split</b>：把这些大矩阵<b>按 head 切成 $n_h$ 个独立小矩阵 $W^{UQ}_h, W^{UK}_h, W^{UV}_h \in \mathbb{R}^{d_c \times d_h}$</b>，
+对每个独立小矩阵分别做正交化，让不同头的投影权重以不同尺度更新。这是一次<b>正交化粒度的退让</b>——
+牺牲一点全局正交性，换回 head-level 的尺度自由度。一个表说话：</p>
 
 <table>
 <tr><th>配置</th><th>HellaSwag</th><th>MMLU</th><th>C-Eval</th><th>RACE</th><th>BBH</th><th>GSM8K</th><th>HumanEval</th></tr>
-<tr><td>GQA-8</td><td>77.3</td><td>61.2</td><td>60.0</td><td>79.6</td><td>53.3</td><td>47.6</td><td>38.5</td></tr>
-<tr><td>MLA</td><td>77.3</td><td>61.5</td><td>59.7</td><td>77.8</td><td>48.9</td><td>46.2</td><td>33.5</td></tr>
+<tr><td>GQA-8（baseline）</td><td>77.3</td><td>61.2</td><td>60.0</td><td>79.6</td><td><b>53.3</b></td><td><b>47.6</b></td><td><b>38.5</b></td></tr>
+<tr><td>MLA（朴素）</td><td>77.3</td><td>61.5</td><td>59.7</td><td>77.8</td><td>48.9</td><td>46.2</td><td>33.5</td></tr>
 <tr><td>MLA + Muon Split</td><td><b>77.8</b></td><td><b>62.5</b></td><td><b>62.1</b></td><td><b>79.9</b></td><td>51.8</td><td>45.0</td><td>36.7</td></tr>
 <tr><td>MLA-256 + Muon Split</td><td>77.4</td><td>62.0</td><td>59.9</td><td>79.6</td><td>51.3</td><td>47.5</td><td>36.6</td></tr>
 </table>
 
-<p>另外 MLA decoding 时要做 576 维点积，比 GQA 的 128 维贵；GLM-5 把 head dim 从 192 提到 256，head 数同步减 1/3，
-让训练 / prefill compute 不变、decoding compute 降下来——这个变体就是 <b>MLA-256</b>。
-论文说在他们硬件上 MLA-256 性能与 MLA + Muon Split 持平。Muon Split 还有个意外好处：
-attention logits 的尺度在预训练全程稳定，不需要 logits clipping 这种 hack。</p>
+<p>从单纯指标看，Muon Split 让 MLA 在 7 个 benchmark 中的 4 个反超 GQA-8（HellaSwag、MMLU、C-Eval、RACE），
+另外 3 个（BBH/GSM8K/HumanEval）的差距收窄到 1–2 分以内。论文还顺手记录了一个意外副产物：
+<b>attention logits 的尺度在预训练全程稳定，不需要 logits clipping 这种 hack</b>——这暗示原 recipe 里的 logits 漂移其实就来自 head 间的尺度耦合。</p>
 
-<h3 id="arch-mtp">2.2 共享参数 MTP：训练 1 层、推理 4 步</h3>
+<h4>(c) MLA-256：把 decoding compute 拉回硬件友好区</h4>
 
-<p>常规 MTP 训练 $n$ 层、推理 $n$ 步，KV cache 与参数都线性涨。
-DeepSeek-V3 的折中是训练单层、推理推 2 token——但训练-推理不一致让第二个 token 的 acceptance 掉得厉害。
-GLM-5 的方案：<b>训练 3 层 MTP，但 3 层共享同一份参数</b>。
-draft 模型显存与 DeepSeek-V3 相同，acceptance 长度反而更高。私有 prompt 集上的实测对比：</p>
+<p>MLA decoding 阶段要做 <b>576 维点积</b>（因为 KV 是 latent 形式），比 GQA 的 128 维贵 4.5 倍。
+DSV3 的注意力配置（128 head × 192 head dim）是按 H800 roofline 调的，对其他硬件——尤其国产芯片——不友好。
+GLM-5 的做法：<b>head dim 从 192 提到 256，head 数同步减 1/3</b>，让 $n_h \times d_h$ 不变，于是：</p>
+
+<ul>
+<li>训练 / prefill 阶段（MHA 形态）：总 compute 与原 MLA 持平；</li>
+<li>decoding 阶段（latent 形态）：head 数变少 → 实际并行的 latent 点积数变少 → decoding compute 下降；</li>
+<li>参数量：保持不变（$d_c \times n_h d_h$ 是 invariant）。</li>
+</ul>
+
+<p>这个变体就是 <b>MLA-256</b>。论文说在他们的硬件上 MLA-256 与 MLA + Muon Split 在下游指标上几乎持平
+（差距均 ≤ 0.4 分），相当于"白拿"了 decoding 速度。最终 GLM-5 base 用的就是 <b>MLA-256 + Muon Split</b>。</p>
+
+<h3 id="arch-mtp">2.2 共享参数 MTP：训练 3 层 / 推理 4 步</h3>
+
+<h4>(a) 朴素 MTP 的两个困境</h4>
+
+<p>常规 Multi-token Prediction (MTP) 路线有一个尺度悖论：要预测下 $n$ 个 token 就需要 $n$ 个 MTP 层，
+每层有自己的参数 + KV cache，<b>显存随 spec 步数线性增长</b>。
+DeepSeek-V3 的折中是训练单层 MTP、推理推 2 token——但这就引入了第二个困境：
+训练阶段从未"用第 1 个 MTP 输出当作输入推第 2 个"，<b>训练-推理分布不一致</b>，
+导致第 2 个 token 的 speculative acceptance 显著低于第 1 个。</p>
+
+<h4>(b) GLM-5 的解：3 层全部共享参数</h4>
+
+<p>GLM-5 的方案：<b>训练 3 层 MTP，但 3 层共享同一份参数</b>。
+直觉上这是个"参数复用"小技巧，但带来三个具体好处：</p>
+
+<ol>
+<li><b>显存与 DSV3 一致</b>：draft 模型只持有一份 MTP 参数；KV cache 也只算 3 层 sharable footprint。</li>
+<li><b>训练-推理分布对齐</b>：训练时第 2、第 3 层的输入就是前一层 MTP 的输出，与推理时"逐步往前推"完全一致。</li>
+<li><b>"过参数化"正则化</b>：3 个 layer 视图同一个参数，相当于训练时给 MTP 头施加了多步一致性约束。</li>
+</ol>
 
 <table>
-<tr><th>模型</th><th>Speculative steps</th><th>Accept Length</th></tr>
-<tr><td>DeepSeek-V3.2</td><td>4</td><td>2.55</td></tr>
-<tr><td>GLM-5</td><td>4</td><td><b>2.76</b></td></tr>
+<tr><th>模型</th><th>Speculative steps</th><th>Accept Length</th><th>解读</th></tr>
+<tr><td>DeepSeek-V3.2</td><td>4</td><td>2.55</td><td>单层 MTP 训练，第 3、4 步分布漂移明显</td></tr>
+<tr><td><b>GLM-5</b></td><td>4</td><td><b>2.76</b></td><td>3 层共享参数，4 步内能稳定接受 2.76 token</td></tr>
 </table>
 
-<h3 id="arch-dsa">2.3 DSA 持续预训练：从 dense 拼接 sparse 只花 20B tokens</h3>
+<p>2.55 → 2.76 看似只提升 0.21，但折成 wall-clock 收益是 ~8% 的端到端 decode 加速；
+而显存与 GPU memory 占用<b>一分都没多</b>。论文私有 prompt 集上的对比表明这是可重复的稳定差距。</p>
 
-<p>DSA（DeepSeek Sparse Attention）的"灵魂"是用一个轻量索引器（lightning indexer）打分，
-为每个 query 选 top-k 最相关 KV，在子集上做稠密注意力。
-论文实测发现"长上下文里 90% 的 attention entry 是冗余的"，所以可以无损地在每一层都用 DSA，
-比 SWA 等"砍一半精度"的 efficient attention 干净。</p>
+<h3 id="arch-dsa">2.3 DSA 持续预训练：1000 步 warmup + 20B token 完成 dense → sparse 切换</h3>
 
-<p>关键工程发现：DSA 不需要从头训。从 mid-training 末尾的 dense MLA base 起步，仅用 <b>1000 步 indexer warmup（每步 14×202,752 token, lr 5e-3）+ 20B token 联合训练</b>就能把 sparse 模型对齐到 dense baseline——
-DeepSeek-V3.2 自己用了 943.7B token 才完成的事，GLM-5 用了 ~1/47 的预算。
-SFT 阶段 MLA 与 DSA 的损失曲线如下：</p>
+<h4>(a) DSA = Lightning Indexer + Top-k 稠密注意力</h4>
+
+<p>DSA（DeepSeek Sparse Attention）的"灵魂"是用一个<b>轻量索引器 (lightning indexer)</b>给每个 query–KV 对打分，
+对每个 query 只挑 top-k 最相关 KV，再在这个 k-子集上做正常的稠密 softmax 注意力。
+关键设计点是 indexer 的<b>体量极小</b>（FP8 矩阵乘 + ReLU + topk，远轻于一次完整 attention），
+所以"先选再算"反而比"全部算"快。它的工作流程可以画成：</p>
+
+<div class="formula">
+$$ \text{score}_{i,j} = \text{ReLU}(W_q q_i)^\top \text{ReLU}(W_k k_j),\quad \mathcal{S}_i = \text{TopK}_j(\text{score}_{i,j}),\quad o_i = \text{Attn}\bigl(q_i, \{k_j, v_j\}_{j\in \mathcal{S}_i}\bigr) $$
+</div>
+
+<p>论文实测发现"长上下文里 90% 的 attention entry 是冗余的"，所以可以<b>无损地在每一层都用 DSA</b>——
+这与 SWA / GDN 等"按层混合"或"砍精度"的 efficient attention 路线本质不同。
+DSA 的代价只来自 indexer 本身，长序列下 attention 主体计算降到约 1/2（论文说 1.5–2× 加速）。</p>
+
+<h4>(b) 为什么不需要从头训：dense → sparse 的"廉价切换"</h4>
+
+<p>关键工程发现：DSA 不需要从头训。GLM-5 从 mid-training 末尾的 dense MLA base 起步，分两段走：</p>
+
+<ul>
+<li><b>Indexer warmup（1000 步）</b>：每步 $14 \times 202{,}752$ token，最大 lr = 5e-3。<b>只训 indexer，主干冻结</b>。
+这段的目的是让 indexer 的 score 与"真实 attention 权重的强相关位置"对齐——可以理解为给 indexer 一个"答案是什么"的预热信号。</li>
+<li><b>联合训练（20B token）</b>：解冻主干，复用 mid-training Stage 3 的 200K 数据与超参，让 indexer + 主干在 sparse 形态下共同收敛。</li>
+</ul>
+
+<p>这两步合计 <b>~20B token</b>。对比 DeepSeek-V3.2 公开的 943.7B token 转换预算，GLM-5 用了 <b>~1/47</b> 就完成了同样的事。
+作者把这归因于：(1) MLA-256 的 latent KV 形式天生与 indexer 输出兼容；(2) Muon Split 让 attention 头各向异性更稳定，indexer 不需要"追"漂移的 attention 分布。</p>
 
 <div class="figure-box">
   <img src="images/fig06_loss_mla_dsa.png" alt="MLA vs DSA SFT loss">
   <div class="caption"><b>Figure 6.</b> 蓝线 = MLA 基线、橙线 = DSA。横轴是归一化训练步 (0–1.0)，纵轴是 SFT loss（0.35–0.55），右上角小图是两者相对差（−0.0004 ~ +0.0004）。两条曲线几乎完全重叠，相对差始终在 ±0.0004 以内。论点：经过 20B token 持续预训练的 DSA 在下游 SFT 上与 dense MLA 等效，没有"sparsity 税"。</div>
 </div>
 
+<h4>(c) 长上下文召回：DSA ≥ MLA</h4>
+
 <table>
 <tr><th>模型</th><th>MQ-NIAH-128k</th><th>MV-NIAH-128k</th><th>SQuAD-128k</th><th>HotpotQA-128k</th></tr>
-<tr><td>MLA</td><td>100.0</td><td>95.5</td><td>79.7</td><td><b>66.3</b></td></tr>
-<tr><td>DSA</td><td>100.0</td><td><b>97.0</b></td><td><b>86.0</b></td><td>63.0</td></tr>
+<tr><td>MLA（dense baseline）</td><td><b>100.0</b></td><td>95.5</td><td>79.7</td><td><b>66.3</b></td></tr>
+<tr><td>DSA（sparse, 20B token）</td><td><b>100.0</b></td><td><b>97.0</b></td><td><b>86.0</b></td><td>63.0</td></tr>
 </table>
+
+<p>DSA 在 4 个 128K 长上下文任务里 3 个反超 dense MLA（其中 SQuAD-128k 涨了 6.3 分），
+只在 HotpotQA-128k 落后 3.3 分——而 HotpotQA 的 multi-hop 推理特别依赖跨段全局聚合，是 sparse attention 唯一的真实软肋。</p>
+
+<h4>(d) 一个独立小规模验证：GLM-4.7-Flash + DSA</h4>
+
+<p>论文为了证明 DSA recipe 不是"靠 GLM-5 的特殊配方"，又在 GLM-4.7-Flash（多潜在注意力的小模型）上重做了一遍：</p>
+
+<table>
+<tr><th>模型</th><th>4K</th><th>8K</th><th>16K</th><th>32K</th><th>64K</th><th>128K</th></tr>
+<tr><td>GLM-4.7-Flash（baseline）</td><td>95.91</td><td>95.76</td><td>96.20</td><td>92.96</td><td>85.34</td><td>79.21</td></tr>
+<tr><td>+ DSA warmup（仅 1000 步 indexer）</td><td>97.51</td><td>96.54</td><td>95.40</td><td>90.09</td><td>84.05</td><td>71.35</td></tr>
+<tr><td>+ DSA（150B 联合训练）</td><td>96.77</td><td>96.25</td><td><b>96.69</b></td><td><b>93.45</b></td><td><b>87.06</b></td><td>78.86</td></tr>
+</table>
+
+<p>结论非常硬：联合训练后 DSA 在 16K / 32K / 64K 三个长度上全部反超 baseline（最大 +1.72@64K），
+128K 仅落后 0.35 分。<b>这是把"DSA 不是靠 GLM-5 兜底"这件事在两个不同模型上做了互证</b>。</p>
 
 <h3 id="arch-ablation">2.4 高效注意力消融：为什么不是 SWA / GDN？</h3>
 
-<p>论文用 GLM-9B 做了一组对照（同样从 dense baseline 持续训练 190B 64K-token）：</p>
+<p>论文用 GLM-9B 做了一组对照（同样从 dense baseline 持续训练 190B 64K-token，efficient/full layer 1:1）。这是论文里压力最大、坑最多的一节，因为它直接驳掉了"现成 SWA + 简单插值就够了"的路线。</p>
 
 <table>
-<tr><th>方法</th><th>RULER 64K / 128K</th><th>RepoQA 64K / 128K</th><th>结论</th></tr>
-<tr><td>GLM-9B 全注意力</td><td>85.35 / 75.28</td><td>69.00 / 65.83</td><td>baseline</td></tr>
-<tr><td>SWA Interleave (固定 1:1)</td><td>65.94 / 44.93</td><td>50.33 / 39.33</td><td>128K 暴跌 30 分</td></tr>
-<tr><td>SWA Pattern（搜索）</td><td>83.72 / 69.59</td><td>62.33 / 51.17</td><td>显著优于固定模式</td></tr>
-<tr><td>GDN (linear attn)</td><td>76.76 / 64.00</td><td>65.50 / 56.17</td><td>需要额外参数</td></tr>
-<tr><td>SimpleGDN（移除 Conv1d / gating）</td><td>81.76 / 67.03</td><td>65.50 / 58.50</td><td>最佳 SWA/GDN 折中</td></tr>
-<tr><td><b>DSA</b></td><td colspan="2">参考 Fig 6 / Table 6 的 GLM-4.7-Flash 实验：4K–64K 全部回正甚至超过 baseline，128K 只差 0.35</td><td><b>近无损</b></td></tr>
+<tr><th>方法</th><th>RULER 64K / 128K</th><th>MRCR 64K / 128K</th><th>HELMET-ICL 64K / 128K</th><th>RepoQA 64K / 128K</th></tr>
+<tr><td>GLM-9B（Full Attn baseline）</td><td>85.35 / 75.28</td><td>36.53 / 35.39</td><td>77.68 / 77.36</td><td>69.00 / 65.83</td></tr>
+<tr><td>SWA Interleave（固定 1:1）</td><td>65.94 / 44.93 <span style="color:#a33">(↓19/↓30)</span></td><td>30.03 / 28.83</td><td>75.96 / 63.52</td><td>50.33 / 39.33</td></tr>
+<tr><td>SWA Pattern（beam search）</td><td>83.72 / 69.59 <span style="color:#a33">(↓1.6/↓5.7)</span></td><td>35.02 / 33.58</td><td>76.48 / 74.60</td><td>62.33 / 51.17</td></tr>
+<tr><td>GDN（linear attn，加参数）</td><td>76.76 / 64.00</td><td>31.72 / 30.22</td><td>76.88 / 74.84</td><td>65.50 / 56.17</td></tr>
+<tr><td>SimpleGDN（去 Conv1d / gating）</td><td>81.76 / 67.03</td><td>33.03 / 31.27</td><td><b>79.80 / 81.84</b></td><td>65.50 / 58.50</td></tr>
+<tr><td><b>DSA</b>（GLM-4.7-Flash 同条件）</td><td colspan="4"><b>4K–64K 全部回正甚至超过 baseline，128K 仅差 0.35</b></td></tr>
 </table>
 
 <div class="highlight">
-<b>SWA Pattern 是个有意思的副产物</b>：用 beam search（beam 8、每步搜 2 层、共 ~10 步）在 16K 上下文里搜出 SWA / Full 的层级模式
-<code>SFSSFFSSSFFFFSSFSFFFFFFSFSFSSFSSFSFSSFSSS</code>，再把模式直接外推到 32K-128K，竟然还能保持。
-但即使是搜索得最好的 SWA 模式，128K RULER 还是比 baseline 低 5.69 分；只有 DSA 是"零信息损失"——
-indexer 决定每层选哪些 token，不强制丢弃任何长程依赖。
+<b>SWA Pattern 是个有意思的副产物</b>：用 beam search（beam 8、每步搜 2 层、共 ~10 步、在 16K 上下文做 RULER 评估）搜出 SWA / Full 的层级模式
+<code>SFSSFFSSSFFFFSSFSFFFFFFSFSFSSFSSFSFSSFSSS</code>（S = SWA、F = Full、共 40 层），把模式直接外推到 32K-128K，<b>无需重训也能保持</b>。
+但即使是搜得最好的 SWA 模式，128K RULER 还是比 baseline 低 5.69 分；RepoQA@128K 更是低 14.66 分。
+唯一"零信息损失"的是 DSA——indexer 决定每层选哪些 token，不强制丢弃任何长程依赖。
 </div>
+
+<p><b>论文给出的判定层级</b>：</p>
+<ol>
+<li>SWA Interleave（固定）→ 不可用，128K 暴跌 30 分；</li>
+<li>SWA Pattern（搜索）→ 把伤害降到 5–15 分但仍不可忽略；</li>
+<li>GDN / SimpleGDN（线性注意力）→ MRCR / HELMET 上有亮点但 RULER 仍受损，且 GDN 要加额外参数；</li>
+<li><b>DSA</b> → 没有 free-lunch 限制，可以"全层应用 + 无信息丢失"，是唯一通过的方案。</li>
+</ol>
+
+<p>这条判定链解释了为什么 GLM-5 选 DSA 而不是任何更"成熟"的 SWA/GDN——
+真正的瓶颈不是 efficient attention 的速度，而是<b>它能不能把信息损失降到零</b>。</p>
 </section>
 
 <section id="pretrain">
