@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSA: Native Sparse Attention 深度解读</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:240px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px}
+.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}
+.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}
+.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:240px;max-width:880px;padding:48px 44px 120px}
+h1{font-size:28px;line-height:1.35;margin:0 0 6px;color:#000}
+.subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+.meta{border-top:1px solid #ddd;border-bottom:1px solid #ddd;padding:14px 0;margin:14px 0 22px;display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+.meta span{display:flex;flex-direction:column;justify-content:flex-start;gap:4px;padding:0 16px;border-right:1px solid #eee;font-size:13px;color:#222;line-height:1.45}
+.meta span:last-child{border-right:0}
+.meta span:first-child{padding-left:0}
+.meta span b{display:block;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#888;font-weight:700;margin:0}
+@media(max-width:700px){.meta{grid-template-columns:repeat(2,1fr)}.meta span{border-right:0;padding:8px 0;border-bottom:1px solid #eee}}
+h2{font-size:21px;color:#000;margin:36px 0 12px;padding-bottom:6px;border-bottom:2px solid #000}
+h3{font-size:16px;color:#000;margin:24px 0 8px}
+h4{font-size:14px;color:#222;margin:18px 0 6px}
+p{margin:0 0 12px;text-align:justify}
+.card,.highlight{border:1px solid var(--line);padding:16px 18px;margin:16px 0;background:#fff}
+.highlight{background:#f7f7f2;border-left:3px solid #000}
+.figure-box{border:1px solid #ccc;padding:14px;text-align:center;margin:20px auto;background:#fff}
+.figure-box img{max-width:100%;height:auto}
+.caption{font-size:12px;color:#444;margin-top:8px;line-height:1.65;font-style:italic;text-align:left}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left}
+td{border-bottom:1px solid #ddd;padding:7px 9px}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}
+.metric-card{border:1px solid #ccc;text-align:center;padding:14px}
+.metric-card .value{font-size:25px;font-weight:700;color:#000}
+.metric-card .label{font-size:11px;color:#666;margin-top:4px}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto;font-size:14px}
+.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px}
+ul,ol{padding-left:22px} li{margin-bottom:6px}
+.kv{display:grid;grid-template-columns:200px 1fr;gap:6px 14px;font-size:13px;margin:10px 0}
+.kv .k{color:#666}
+.footer{font-size:12px;color:#777;border-top:1px solid #ddd;padding-top:16px;margin-top:36px}
+@media(max-width:900px){.toc-sidebar{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line)}.main{margin-left:0;padding:24px 20px 80px}}
+</style>
+</head>
+<body>
+
+<nav class="toc-sidebar">
+<h2>目录</h2>
+<a href="#abstract">摘要 &amp; 一图速览</a>
+<a href="#intro">1. 引言：长上下文的两块短板</a>
+<a href="#rethink">2. 既有方法为何不够用</a>
+<a class="sub" href="#rethink-infer">2.1 推理速度的"幻觉"</a>
+<a class="sub" href="#rethink-train">2.2 可训练 sparsity 的"神话"</a>
+<a href="#method">3. NSA 方法</a>
+<a class="sub" href="#method-frame">3.1 三分支 + Gate 总框架</a>
+<a class="sub" href="#method-comp">3.2 Token Compression</a>
+<a class="sub" href="#method-sel">3.3 Token Selection（重用打分）</a>
+<a class="sub" href="#method-win">3.4 Sliding Window</a>
+<a class="sub" href="#method-kernel">3.5 Kernel：GQA-grouped Triton</a>
+<a href="#exp">4. 实验</a>
+<a class="sub" href="#exp-setup">4.1 27B/3B 预训练设置</a>
+<a class="sub" href="#exp-general">4.2 通用 benchmark</a>
+<a class="sub" href="#exp-long">4.3 长上下文与 NIAH</a>
+<a class="sub" href="#exp-cot">4.4 CoT 数学推理</a>
+<a href="#eff">5. 效率分析</a>
+<a class="sub" href="#eff-train">5.1 训练 / Prefill 速度</a>
+<a class="sub" href="#eff-decode">5.2 Decoding 速度</a>
+<a href="#discuss">6. 深度讨论</a>
+<a class="sub" href="#alt-strategies">6.1 替代选择策略为何失败</a>
+<a class="sub" href="#blockwise">6.2 Attention 的 block 聚集模式</a>
+<a href="#takeaway">7. 核心总结</a>
+<a href="#refs">参考资源</a>
+</nav>
+
+<main class="main">
+
+<h1>NSA: Native Sparse Attention<br><span style="font-size:18px;font-weight:400;">硬件对齐、原生可训练的稀疏注意力</span></h1>
+<div class="subtitle">DeepSeek-AI · 北京大学 · 华盛顿大学 · arXiv:2502.11089 · 2025 年 2 月（v2）</div>
+
+<div class="meta">
+<span><b>核心问题</b>长上下文 attention 的训练 / 推理双瓶颈</span>
+<span><b>规模</b>27B 总参 / 3B 激活（GQA + DeepSeekMoE）</span>
+<span><b>训练 token</b>270 B（8K）+ 32K 长文继续训练</span>
+<span><b>主结果</b>9× 前向 / 6× 反向 / 11.6× 解码</span>
+</div>
+
+<section id="abstract">
+<h2>摘要 &amp; 一图速览</h2>
+
+<p>NSA 是 DeepSeek 与北大、华盛顿大学合作的<b>原生可训练 (natively trainable)</b> 稀疏注意力架构——
+"原生"意味着 sparsity 不是事后剪枝得到，而是从预训练第一步就以 sparse 形式参与梯度。
+论文的两条主张可以一句话概括：</p>
+
+<div class="highlight">
+<b>主张一（性能）</b>：在 27B/3B 激活的 GQA + MoE 模型上，从头预训练 270B token 的 NSA 在 9 项通用 benchmark 中 7 项<b>反超</b> Full Attention，
+LongBench 平均分 0.469 高于 Full Attention 的 0.437，64K NIAH 全位置满分。<br>
+<b>主张二（速度）</b>：在 64K 上下文 + 8×A100 上，NSA 取得 <b>9.0× 前向、6.0× 反向、11.6× 解码</b> 加速。
+关键不是"理论 FLOPs 砍多少"，而是 sparse 结构与硬件 (Tensor Core / GQA group / 连续 KV 块) <b>对齐</b>。
+</div>
+
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">27 B / 3 B</div><div class="label">总参 / 激活参数</div></div>
+  <div class="metric-card"><div class="value">270 B</div><div class="label">预训练 tokens</div></div>
+  <div class="metric-card"><div class="value">9.0×</div><div class="label">前向 (64K)</div></div>
+  <div class="metric-card"><div class="value">6.0×</div><div class="label">反向 (64K)</div></div>
+  <div class="metric-card"><div class="value">11.6×</div><div class="label">解码 (64K)</div></div>
+  <div class="metric-card"><div class="value">100%</div><div class="label">NIAH 64K 召回</div></div>
+  <div class="metric-card"><div class="value">+0.075</div><div class="label">AIME 8K Δ vs Full Attn</div></div>
+  <div class="metric-card"><div class="value">+0.032</div><div class="label">LongBench Δ vs Full Attn</div></div>
+</div>
+
+<div class="figure-box">
+  <img src="images/fig01_overview.png" alt="NSA performance and speedup teaser">
+  <div class="caption"><b>Figure 1.</b> 左侧柱图比较 Full Attention（深色）与 NSA（浅色）在 General / LongBench / Reasoning 三类 benchmark 上的平均分——三档全部 NSA 略高，且 Reasoning 这档 NSA 优势最显著。右侧柱图是 64K 序列下 Decode / Forward / Backward 三个阶段的加速比，分别为 11.6× / 9.0× / 6.0×。该图压缩了论文的两条核心主张：sparse 不掉点 + 全阶段硬件级加速。</div>
+</div>
+</section>
+
+<section id="intro">
+<h2>1. 引言：长上下文 &amp; sparse attention 的两块短板</h2>
+
+<p>长上下文已经从"奢侈品"变成"刚需"——repo 级代码生成、多轮 agent、deep research、CoT 推理都要求模型在 64K–128K 范围里不掉精度。
+但 vanilla softmax attention 的 $O(L^2)$ 复杂度让它在长序列里成为绝对瓶颈：论文开门给出一个具体数据，
+<b>当上下文达到 64K 时，attention 占 decoding 总延迟的 70–80%</b>。
+也就是说，KV cache 再小、MLP 再快，attention 不快下来整体也快不了。</p>
+
+<p>把 attention 砍稀疏看似显然：softmax 本来就有"少数 query–key 对贡献了大部分能量"的天然 sparsity。
+但论文紧接着指出现有 sparse attention 的两块短板，恰恰对应它要解决的两个问题：</p>
+
+<div class="card">
+<b>短板 A：推理"理论速度"≠"实际速度"</b><br>
+许多方法（H2O、Quest、MInference、ClusterKV）只在某个 phase 有 sparsity——
+例如只优化 decoding，prefilling 仍然要做完整的 attention map / 索引构建；
+又或者它们与 GQA / MQA 这种"分组共享 KV"的现代架构不兼容（每个 head 独立选 KV，导致 GQA group 内的 KV 必须取并集，省不下访存）。
+最终：理论 FLOPs 大幅下降，wall-clock 几乎不动。
+</div>
+
+<div class="card">
+<b>短板 B：把"推理稀疏"硬塞进训练几乎都失败</b><br>
+(1) <b>Performance Degradation</b>：对预训练好的 dense 模型 post-hoc 稀疏化等于强制偏离原本的优化轨迹。
+论文引 Chen 2024 的数据：top-20% attention 只覆盖 70% 注意力分数总能量——剩下 30% 不可忽略。
+(2) <b>Non-trainable Components</b>：ClusterKV 的 k-means 聚类、MagicPIG 的 SimHash 选 token 都是离散操作，不可微，
+直接挡住梯度。
+(3) <b>Inefficient Backward</b>：HashAttention 这类 token-granular 选择会让 KV 加载非连续，FlashAttention 那套连续访存 + blockwise 计算的快路径直接失效。
+</div>
+
+<p>NSA 的判断很直接——既要硬件对齐，又要原生可训练，那就<b>从架构层重新设计</b>，
+而不是把现成 sparse attention 改一改套上去。这就是接下来三件事：(1) 三分支 + 门控的总框架；
+(2) 重用 compression scores 当作 selection scores（避免重新算 importance 的额外开销）；
+(3) 围绕 GQA 写一个把"组共享 KV 块"放到 SRAM 里跑的 Triton kernel。</p>
+</section>
+
+<section id="rethink">
+<h2>2. 既有方法为何不够用</h2>
+
+<h3 id="rethink-infer">2.1 The Illusion of Efficient Inference</h3>
+
+<p>论文把"理论快但实际慢"归到两个具体原因：</p>
+
+<ul>
+<li><b>Phase-Restricted Sparsity</b>：方法只覆盖部分阶段。H2O 优化 decoding 但 prefilling 仍要计算 full attention map 来挑 heavy hitters；MInference 反过来只优化 prefilling。
+对 long-CoT 推理（decoding 主导）或文档总结（prefilling 主导）来说，未覆盖的阶段成为新的瓶颈。</li>
+<li><b>架构不兼容</b>：Quest 在 MHA 上确实降访存——每个 head 独立选 top-n KV 子集；
+但移到 GQA 上，<b>同组 head 共享 KV cache</b>，多个 head 各选各的 KV → 实际加载的是<b>并集</b>，访存量并未下降。
+这是 sparse 算法层面看不到、只有真正部署在 GQA 模型上才会撞到的坑。</li>
+</ul>
+
+<h3 id="rethink-train">2.2 The Myth of Trainable Sparsity</h3>
+
+<p>"理论上可训练"和"工程上可训练"差很远：</p>
+
+<ul>
+<li><b>非可微部件</b>：ClusterKV 用 k-means、MagicPIG 用 SimHash，selection step 不可微，梯度被挡住。</li>
+<li><b>反向传播低效</b>：HashAttention token 级选择导致 KV 加载离散——FlashAttention 的连续访存优化直接报废。</li>
+<li><b>分布漂移</b>：post-hoc 把 dense 模型剪成 sparse，原本"retrieval head"这类高度专精的注意力结构会被误剪——预训练里它们才<b>是关键</b>。</li>
+</ul>
+
+<p>这两节一起把"为什么必须做 native sparse"讲清楚：选择必须可导、kernel 必须连续访存、训练必须从第一步就稀疏，
+缺一个，前述短板就会冒出来。</p>
+</section>
+
+<section id="method">
+<h2>3. NSA 方法</h2>
+
+<h3 id="method-frame">3.1 三分支 + Gate 的总框架</h3>
+
+<p>令 query token 为 $q_t$，前缀的 key/value 序列为 $\mathbf{k}_{:t}, \mathbf{v}_{:t}$。NSA 不再用全部 key/value 做 attention，
+而是构造一组<b>压缩、信息密度更高</b>的 $\tilde{K}_t, \tilde{V}_t$——它由三条互补的分支拼成：</p>
+
+<div class="formula">
+$$ \tilde{K}_t = f_K(q_t, \mathbf{k}_{:t}, \mathbf{v}_{:t}), \quad \tilde{V}_t = f_V(q_t, \mathbf{k}_{:t}, \mathbf{v}_{:t}),\quad o^{*}_t = \mathrm{Attn}(q_t, \tilde{K}_t, \tilde{V}_t) $$
+$$ o^{*}_t = \sum_{c\in \mathcal{C}} g_t^{c} \cdot \mathrm{Attn}\bigl(q_t, \tilde{K}_t^{c}, \tilde{V}_t^{c}\bigr),\quad \mathcal{C} = \{\mathrm{cmp},\ \mathrm{slc},\ \mathrm{win}\} $$
+</div>
+
+<p>三条分支各司其职：</p>
+<ul>
+<li><b>cmp（compression）</b>：把每个连续 key/value 块压成一个"摘要 token"——粗粒度全局视野；</li>
+<li><b>slc（selection）</b>：基于 cmp 算出的注意力分数，挑出 top-n 个最相关 block 做<b>细粒度</b>稠密 attention；</li>
+<li><b>win（sliding window）</b>：保留最近 $w$ 个 token——专门承担局部模式，<b>避免局部信号"短路"前两条分支</b>。</li>
+</ul>
+
+<p>$g_t^{c} \in [0,1]$ 是 gate score，由输入特征通过 MLP + sigmoid 得到。三条分支的 KV 是<b>独立的</b>——
+论文特别强调这一点：让每个分支学习自己专精的模式，互不干扰梯度。三条分支总 token 数 $N_t \ll t$，是稀疏度的关键。</p>
+
+<div class="figure-box">
+  <img src="images/fig02_architecture.png" alt="NSA architecture overview">
+  <div class="caption"><b>Figure 2.</b> NSA 整体架构。左半部分是数据流：输入序列分成连续 block，分别走 (上) Compression 摘要 attention、(中) top-n Selection 选块 attention、(下) Sliding 局部窗口 attention，三路输出经门控 (Gated Output) 加权求和。右半部分是三种 attention pattern 的 mask 可视化：绿色 = 实际计算的 query-key 对，白色 = 跳过；compression mask 是粗格子（块级）、selection mask 是若干稀疏宽条（被选中的 block）、sliding mask 是窄对角带（最近 w token）。该图论证 NSA 的"hierarchical sparsity"是<b>三层 mask 的叠加</b>，而非单一稀疏模式。</div>
+</div>
+
+<h3 id="method-comp">3.2 Token Compression：用 MLP 把 block 压成"摘要 token"</h3>
+
+<p>把 key 序列按块长 $l$、滑动步长 $d$ 分块，对每块用一个带<b>块内位置编码</b>的可学 MLP $\varphi$ 压成一个向量：</p>
+
+<div class="formula">
+$$ \tilde{K}_t^{\mathrm{cmp}} = f_K^{\mathrm{cmp}}(\mathbf{k}_{:t}) = \Bigl\{ \varphi(\mathbf{k}_{id+1:id+l}) \;\Big|\; 0 \le i \le \tfrac{t-l}{d} \Bigr\} $$
+</div>
+
+<p>论文采用 $d < l$，让相邻块有重叠，缓解信息碎片化。块内位置编码很重要——MLP 否则只看到一个无序集合，丢掉块内顺序。
+$\tilde{V}_t^{\mathrm{cmp}}$ 同理。这一支扛起<b>全局粗粒度信息</b>，并且——这是设计上的妙处——它的 attention scores 还要被复用来给"selection"打分（见 3.3）。</p>
+
+<h3 id="method-sel">3.3 Token Selection：直接复用 cmp 的分数挑 top-n 块</h3>
+
+<p>只用压缩 token 会丢失关键细节，所以 NSA 还要在原始（未压缩）的 KV 序列上做<b>稠密 attention</b>，
+但只在<b>选中的 block 子集</b>里做。难点是：怎么以低代价挑出"最相关"的若干块？</p>
+
+<p><b>关键 trick：把 cmp 的注意力分数当成 selection 的 importance score。</b>
+计算 $q_t$ 对 $\tilde{K}_t^{\mathrm{cmp}}$ 的 softmax 输出 $\mathbf{p}_t^{\mathrm{cmp}}$，这本来就是 cmp 分支的中间结果，<b>不需要额外计算</b>。
+再把它映射到 selection block：</p>
+
+<div class="formula">
+$$ \mathbf{p}_t^{\mathrm{cmp}} = \mathrm{Softmax}\bigl(q_t^\top \tilde{K}_t^{\mathrm{cmp}}\bigr) $$
+$$ \mathbf{p}_t^{\mathrm{slc}}[j] = \sum_{m=0}^{l'/d - 1}\sum_{n=0}^{l/d - 1} \mathbf{p}_t^{\mathrm{cmp}}\Bigl[\tfrac{l'}{d}j - m - n\Bigr] $$
+</div>
+
+<p>第二式处理 cmp block 与 selection block 大小不一的情况（$l, d$ 与 $l'$ 满足整除关系），等价于把 cmp 上的 softmax 分数<b>重叠求和</b>对齐到 selection block。
+当 $l' = l = d$（块对齐）时直接 $\mathbf{p}_t^{\mathrm{slc}} = \mathbf{p}_t^{\mathrm{cmp}}$。</p>
+
+<p>对 GQA / MQA，<b>同组 head 必须选同一组 block</b>，否则 KV cache 加载将变成各 head 选择的并集（这就是 Quest 在 GQA 下失效的原因）。
+NSA 让组内 head 的 importance 累加：</p>
+
+<div class="formula">
+$$ \mathbf{p}_t^{\mathrm{slc}} = \sum_{h=1}^{H} \mathbf{p}_t^{\mathrm{slc},(h)} $$
+</div>
+
+<p>然后取 top-$n$ block：</p>
+
+<div class="formula">
+$$ \mathcal{I}_t = \{\, i \mid \mathrm{rank}(\mathbf{p}_t^{\mathrm{slc}}[i]) \le n \,\},\quad \tilde{K}_t^{\mathrm{slc}} = \mathrm{Cat}\bigl(\{\mathbf{k}_{il'+1:(i+1)l'} \mid i \in \mathcal{I}_t\}\bigr) $$
+</div>
+
+<p>实际配置里还<b>固定保留 1 个 initial block + 2 个 local block</b>（共 16 个 selection block 中），
+让模型对开头的 system prompt 与最近上下文有保底访问。</p>
+
+<p>这套做法的高明之处在于<b>selection 全程可微</b>——top-n 操作虽然离散，但 selection 的得分来自 cmp 分支的 softmax，
+梯度可以经由 cmp 分支回传到主干网络（top-n 选择本身用 stop-gradient 处理）。
+对比 ClusterKV / HashAttention 等用 k-means / SimHash 的做法，这是 NSA 最关键的"原生可训练"机制。</p>
+
+<h3 id="method-win">3.4 Sliding Window：把局部模式从 cmp/slc 中"剥离"</h3>
+
+<p>论文观察到局部 attention 模式学得快、信号强，会"短路" cmp 与 slc 分支——
+模型偷懒走 sliding 那一支就够了，cmp 与 slc 永远学不出全局/中距能力。
+解法是给 sliding 单独建一个分支：</p>
+
+<div class="formula">
+$$ \tilde{K}_t^{\mathrm{win}} = \mathbf{k}_{t-w:t},\quad \tilde{V}_t^{\mathrm{win}} = \mathbf{v}_{t-w:t} $$
+</div>
+
+<p>$w = 512$，三分支 KV 都是<b>独立参数</b>。这种"独立 KV + gate 加权"的设计在论文里被反复强调
+——它本质上是给 cmp/slc/win 三种学习目标各造一个"专家"，
+并通过 gate 让模型按 query 决定每个时刻该听谁的。</p>
+
+<h3 id="method-kernel">3.5 Kernel：以 GQA group 为单位 load 共享 KV 块</h3>
+
+<p>NSA 的算法层是 sparse 的，但稀疏到底能不能转化为 wall-clock 提速，取决于 kernel。
+作者用 Triton 写了三个 kernel：cmp 与 win 直接复用 FlashAttention-2，<b>关键是 selection 分支的 sparse kernel</b>。</p>
+
+<p>朴素做法是按 FlashAttention 的方式按 query block 加载到 SRAM——
+但 sparse selection 下，<b>同一个 query block 内的不同 query 要访问的 KV block 是不一样的</b>（disjoint），
+SRAM 局部性彻底失效。</p>
+
+<p>NSA 的 trick：<b>不按 query token 而按 GQA group 切分</b>。
+对每个 query 位置 $t$，把同组的 $h$ 个 head 的 query $Q\in \mathbb{R}^{[h, d_k]}$ 一次性 load 进 SRAM，
+它们已经被 selection 算法约束<b>共享同一组 KV block 索引 $\mathcal{I}_t$</b>，
+然后内层循环按顺序加载这些 KV block 到 SRAM 计算。</p>
+
+<div class="figure-box">
+  <img src="images/fig03_kernel.png" alt="NSA kernel design" style="max-width:560px">
+  <div class="caption"><b>Figure 3.</b> NSA selection 分支的 kernel 数据流。左侧黄色 Q 由"Grid Loop"逐 query 位置遍历——每个位置加载该位置同 GQA group 的所有 head；右侧蓝色 K/V 由"Inner Loop"按 $\mathcal{I}_t$ 给定的 block 索引顺序加载到 SRAM（绿色框表示驻留 SRAM 的数据），输出最终再写回 HBM。该图论证 NSA 的 kernel 通过<b>把"组共享"作为外层粒度</b>消除了 sparse selection 的 disjoint KV 访存问题——这是 9× 前向加速的工程根因。</div>
+</div>
+
+<p>三个核心设计点：</p>
+
+<ol>
+<li><b>Group-Centric Data Loading</b>：外层按 query 位置遍历，每次把整组 head 的 query 一起 load，避免重复加载 KV block；</li>
+<li><b>Shared KV Fetching</b>：内层按 $\mathcal{I}_t$ 加载连续 KV block 到 SRAM（block 大小 $B_k$ 满足 $B_k \mid l'$），使每个 KV 在 SRAM 中只被读一次；</li>
+<li><b>Outer Loop on Grid</b>：因为不同 query 的内层循环长度（$\propto n$）相近，把 query loop 直接放到 Triton 的 grid scheduler 上，不需要手写 load-balance。</li>
+</ol>
+
+<p>这套设计的目标是<b>arithmetic intensity（每次访存对应的算力 utilization）逼近最优</b>：
+对训练 / prefill 这种 compute-bound 阶段，要把 Tensor Core 喂饱；
+对 decoding 这种 memory-bound 阶段，要让 KV 访存量最小。后者 NSA 的稀疏性直接转化为加速。</p>
+</section>
+
+<section id="exp">
+<h2>4. 实验</h2>
+
+<h3 id="exp-setup">4.1 27B/3B 预训练设置</h3>
+
+<div class="card">
+<b>NSA 主实验模型 (27B 总参 / 3B 激活)</b>
+<div class="kv">
+<div class="k">骨架</div><div>GQA + DeepSeekMoE，30 层 Transformer，hidden = 2560</div>
+<div class="k">GQA</div><div>4 组、共 64 个 head，$d_q = d_k = 192,\ d_v = 128$</div>
+<div class="k">MoE</div><div>72 个 routed expert + 2 个 shared expert，top-k = 6；第 1 层用 SwiGLU MLP 替换以稳训</div>
+<div class="k">NSA 超参</div><div>cmp $l = 32, d = 16$；slc $l' = 64, n = 16$（含 1 initial + 2 local block 强制保留）；win $w = 512$</div>
+<div class="k">训练数据</div><div>270 B token @ 8K → 32K 长文继续训练 + SFT，使用 YaRN 做长度外推</div>
+</div>
+</div>
+
+<div class="figure-box">
+  <img src="images/fig04_loss27b.png" alt="27B pretraining loss curve" style="max-width:640px">
+  <div class="caption"><b>Figure 4.</b> 27B 模型预训练 loss 曲线对比。横轴是 step（0–60K），纵轴是 loss（1.5–4.0）；蓝线 = Full Attention baseline，橙线 = NSA。两条曲线均光滑下降无 spike，<b>NSA loss 自始至终略低于 Full Attention</b>，最终收敛位置约低 0.05。该图证明：NSA 的稀疏架构不是"妥协后能用"，而是<b>从优化角度上比 dense 还稳</b>——稀疏路径迫使模型把注意力放在重要 token，反而起到隐式正则作用。</div>
+</div>
+
+<h3 id="exp-general">4.2 通用 benchmark：稀疏不掉点，反而 7/9 反超</h3>
+
+<table>
+<tr><th>模型</th><th>MMLU</th><th>MMLU-PRO</th><th>CMMLU</th><th>BBH</th><th>GSM8K</th><th>MATH</th><th>DROP</th><th>MBPP</th><th>HumanEval</th><th>Avg.</th></tr>
+<tr><td>Full Attn</td><td><b>0.567</b></td><td>0.279</td><td>0.576</td><td>0.497</td><td>0.486</td><td>0.263</td><td>0.503</td><td><b>0.482</b></td><td>0.335</td><td>0.443</td></tr>
+<tr><td><b>NSA</b></td><td>0.565</td><td><b>0.286</b></td><td><b>0.587</b></td><td><b>0.521</b></td><td><b>0.520</b></td><td><b>0.264</b></td><td><b>0.545</b></td><td>0.466</td><td><b>0.348</b></td><td><b>0.456</b></td></tr>
+</table>
+
+<p>9 个 benchmark 中 7 个 NSA 反超，平均分 +1.3。
+论文最看重的是 reasoning 类涨幅：<b>DROP +0.042、GSM8K +0.034</b>，
+作者解读为"稀疏 pretraining 强迫模型聚焦关键 token，等价于一种隐式 noise filtering 正则"。
+唯一被 Full Attn 反超的两项 (MMLU、MBPP) 差距 ≤ 0.016，可视为持平。</p>
+
+<h3 id="exp-long">4.3 长上下文与 NIAH</h3>
+
+<div class="figure-box">
+  <img src="images/fig05_niah.png" alt="Needle in a haystack 64K" style="max-width:680px">
+  <div class="caption"><b>Figure 5.</b> 64K 上下文 Needle-in-a-Haystack 召回热力图。横轴是 needle 插入位置（context length 1K → 64K），纵轴是 needle 的深度百分比（0% = 开头，100% = 末尾）。颜色越深召回越高；<b>整张图全绿（≈1.0）</b>，没有任何"中段塌陷"或"尾段塌陷"区域。这是 NSA 的关键证据——分层稀疏（cmp 给全局视野 + slc 给细粒度）让 64K 上下文里没有任何位置失效，与那些只能在头/尾 64K 工作的 sparse 方法形成鲜明对比。</div>
+</div>
+
+<table>
+<tr><th>方法</th><th>MFQA-en</th><th>MFQA-zh</th><th>Qasper</th><th>HPQ</th><th>2Wiki</th><th>GovRpt</th><th>Dur</th><th>PassR-en</th><th>PassR-zh</th><th>LCC</th><th>Avg.</th></tr>
+<tr><td>H2O</td><td>0.428</td><td>0.429</td><td>0.308</td><td>0.112</td><td>0.101</td><td>0.231</td><td>0.208</td><td>0.704</td><td>0.421</td><td>0.092</td><td>0.303</td></tr>
+<tr><td>InfLLM</td><td>0.474</td><td>0.517</td><td>0.356</td><td>0.306</td><td>0.250</td><td>0.277</td><td>0.257</td><td>0.766</td><td>0.486</td><td>0.143</td><td>0.383</td></tr>
+<tr><td>Quest</td><td>0.495</td><td>0.561</td><td>0.365</td><td>0.295</td><td>0.245</td><td>0.293</td><td>0.257</td><td>0.792</td><td>0.478</td><td>0.135</td><td>0.392</td></tr>
+<tr><td>Exact-Top</td><td>0.502</td><td>0.605</td><td>0.397</td><td>0.321</td><td>0.288</td><td>0.316</td><td>0.291</td><td>0.810</td><td>0.548</td><td>0.156</td><td>0.423</td></tr>
+<tr><td>Full Attn</td><td>0.512</td><td>0.623</td><td>0.409</td><td>0.350</td><td>0.305</td><td>0.324</td><td>0.294</td><td>0.830</td><td>0.560</td><td>0.163</td><td>0.437</td></tr>
+<tr><td><b>NSA</b></td><td>0.503</td><td><b>0.624</b></td><td><b>0.432</b></td><td><b>0.437</b></td><td><b>0.356</b></td><td>0.307</td><td><b>0.341</b></td><td><b>0.905</b></td><td>0.550</td><td><b>0.232</b></td><td><b>0.469</b></td></tr>
+</table>
+
+<p>NSA 在 LongBench 上拿到 0.469 平均分，比 Full Attention 高 +0.032、比 Exact-Top（精确 top-n）高 +0.046。
+论文特意指出三个最有意思的细节：</p>
+
+<ul>
+<li><b>多跳 QA</b>：HPQ +0.087、2Wiki +0.051——多跳推理需要<b>跨段聚合</b>，正是 cmp + slc 这种"全局看摘要、局部钻细节"组合的甜区；</li>
+<li><b>代码理解</b>：LCC +0.069——repo 级代码理解依赖跨文件的稀疏长程依赖；</li>
+<li><b>段落检索</b>：PassR-en 0.905（其他方法多在 0.7–0.83）——这正是 NIAH 那种风格的任务，NSA 的稀疏路径不丢精度。</li>
+</ul>
+
+<p>对照 baseline 列：H2O / InfLLM / Quest 平均分都被 Full Attn 显著压住，
+说明<b>"取一段 KV 子集做 attention"在没有原生训练支撑时确实有信息损失</b>；
+而 NSA 反过来超过 Full Attn——这只能用"稀疏作为正则"来解释。</p>
+
+<h3 id="exp-cot">4.4 CoT 数学推理：AIME 上 NSA-R 双倍 Full-R</h3>
+
+<table>
+<tr><th>生成长度上限</th><th>Full Attention-R</th><th>NSA-R</th><th>Δ</th></tr>
+<tr><td>8 192</td><td>0.046</td><td><b>0.121</b></td><td>+0.075</td></tr>
+<tr><td>16 384</td><td>0.092</td><td><b>0.146</b></td><td>+0.054</td></tr>
+</table>
+
+<p>实验做法是用 DeepSeek-R1 蒸馏：取 10B token 长度 32K 的数学 CoT 数据做 SFT，得到 Full-R 与 NSA-R 两个模型，
+在 AIME 24 上各采 16 个 response 取平均。NSA-R 在 8K 长度上几乎是 Full-R 的 2.6 倍准确率（0.121 vs 0.046），
+16K 仍领先 +0.054。论文给出的解释——"原生 sparse 让模型在预训练阶段就锻炼出长程依赖捕捉能力"——
+和 NIAH 那张图、LongBench 多跳 QA 一同形成证据链。</p>
+</section>
+
+<section id="eff">
+<h2>5. 效率分析</h2>
+
+<h3 id="eff-train">5.1 训练 / Prefill 速度：64K 处 9× 前向、6× 反向</h3>
+
+<div class="figure-box">
+  <img src="images/fig06_speed.png" alt="Forward and backward speedup">
+  <div class="caption"><b>Figure 6.</b> 与 Triton 实现的 FlashAttention-2 比，NSA kernel 在 8K / 16K / 32K / 64K 上的延迟柱图（左：Forward Time，右：Backward Time）。深色 = FlashAttention-2，浅色 = NSA sparse + cmp/win。前向加速比从 8K 的 2.1× 增长到 64K 的 9.0×；反向加速比从 1.1× 涨到 6.0×。<b>加速随上下文长度<u>增长得更快</u></b>——这正是 sparse 设计的本质收益：dense 是 $O(L^2)$，NSA 选 top-n block 是 $O(Ln)$，长度越长比值越大。</div>
+</div>
+
+<p>具体配置：8×A100、GQA group $g = 4$、组内 $h = 16$ head、$d_k = 192$、$d_v = 128$。
+前向 9.0×、反向 6.0× 的差异，论文归到一个具体细节：反向需要重算 attention scores + 累加 dQ/dK/dV gradients，
+sparse 路径下 dK/dV 的累加要 atomic add 到全局 buffer，比前向多一些同步开销——
+但仍远胜 FlashAttention-2 的 $O(L^2)$。</p>
+
+<h3 id="eff-decode">5.2 Decoding 速度：64K 处 11.6× 加速</h3>
+
+<table>
+<tr><th>上下文长度</th><th>8 192</th><th>16 384</th><th>32 768</th><th>65 536</th></tr>
+<tr><td>Full Attention 访存（token）</td><td>8 192</td><td>16 384</td><td>32 768</td><td>65 536</td></tr>
+<tr><td>NSA 访存（token）</td><td>2 048</td><td>2 560</td><td>3 584</td><td>5 632</td></tr>
+<tr><td><b>预期加速比</b></td><td><b>4.0×</b></td><td><b>6.4×</b></td><td><b>9.1×</b></td><td><b>11.6×</b></td></tr>
+</table>
+
+<p>Decoding 是<b>memory-bound</b> 阶段，每步 attention 的访存量直接决定延迟。NSA 每步只加载至多
+$\lfloor (s-d)/l \rfloor$ 个 cmp token + $n l'$ 个选中 token + $w$ 个邻居 token。
+随着 $s$ 增大，cmp 项是 $O(s/l)$，selection 项是 $O(nl') = O(1024)$ 常数，sliding 是 $w = 512$ 常数——<b>总访存近似 $O(s/l)$ 而不是 $O(s)$</b>，所以加速比随长度线性增长。</p>
+
+<p>在 64K 上加速 11.6× 比前向 / 反向更高，恰好印证了"decoding 的稀疏性折扣最大"——
+因为这里没有 prefill 的 $O(L^2)$ 一次性算力分摊，每个 step 都是<b>独立的 KV 加载瓶颈</b>。</p>
+</section>
+
+<section id="discuss">
+<h2>6. 深度讨论</h2>
+
+<h3 id="alt-strategies">6.1 替代选择策略为何失败</h3>
+
+<p>这一节是论文最有"工程教训"的部分。作者在 3B 模型上做了三个对照：
+(a) Full Attention 基线；(b) <b>Auxiliary loss 学习选块</b>（思路类似 SeerAttention：给每块再算一组 representative key，用 KL divergence 监督 importance 预测）；
+(c) <b>Heuristic parameter-free 选块</b>（仿 Quest：query 与 key 块的 coordinate-wise min-max 做内积，无需额外参数）；
+(d) NSA。</p>
+
+<div class="figure-box">
+  <img src="images/fig07_loss3b.png" alt="3B alternative selection strategy losses" style="max-width:560px">
+  <div class="caption"><b>Figure 7.</b> 3B 模型上四种选块策略的训练 loss 曲线（横轴 step 0–30K，纵轴 loss 2.2–3.2）。从下到上：NSA（最低）、Full Attention、Auxiliary loss-based learnable selection、Heuristic parameter-free selection（最高）。<b>NSA 是唯一同时<u>低于</u> Full Attention 的稀疏方案</b>。Auxiliary loss 方法被额外 KL 监督拖累、Heuristic 方法 recall 不够丢信息。该图把"选块策略选错代价巨大"量化成具体 loss 差距。</div>
+</div>
+
+<p>论文还试过给 heuristic 选块加 cold-start——前 1000 步用 full attention 再切 sparse，但仍未追上 NSA。
+这两个失败案例对应论文 §2.2 提的两类"trainable sparsity"陷阱：</p>
+
+<ul>
+<li><b>Aux loss 路线</b>：额外 query / representative key 增加算子开销，KL 监督的偏差还会污染主任务梯度；</li>
+<li><b>Heuristic 路线</b>：min-max product 的 recall 偏低（论文没给具体数字，但 loss 曲线最高就是结果）；</li>
+<li><b>NSA 路线</b>：<b>不引入额外打分网络</b>——直接复用 cmp 分支已经算出的 softmax 分数。零额外开销 + 全程可微。</li>
+</ul>
+
+<p>这是 NSA 设计哲学最锋利的一刀：选块不需要单独的"importance head"，cmp 分支本身就是天然的 importance estimator——
+把 sparsity 的<b>全部计算成本压到一条已经必要的路径上</b>。</p>
+
+<h3 id="blockwise">6.2 Attention 的 block 聚集模式</h3>
+
+<div class="figure-box">
+  <img src="images/fig08_attnmap.png" alt="Block-wise attention pattern" style="max-width:540px">
+  <div class="caption"><b>Figure 8.</b> 27B Full Attention 模型上某层某 head 的 attention map 可视化（双轴均为 token position，浅色 = 高分）。明显呈现<b>块状聚集</b>——高分区域不是孤立 token 而是连续若干 token 形成的小方块（block-wise clustering）。论点：相邻 query token 倾向于关注相邻 key token 区段，attention 内在就是 block-级 sparse 而非 token-级 sparse——这<b>直接证明 NSA 在 block 粒度选 KV 是合理的</b>，不会因块边界对齐而误伤重要 token。</div>
+</div>
+
+<p>这张图把 NSA 的"为什么 block-wise 选块不会丢精度"从经验上证明了——
+高分 attention 本来就以小方块出现，block 粒度选择恰好与<b>预训练 dense attention 自发涌现的稀疏结构</b>对齐。
+这与 FlashAttention 用 block 做计算分块的工程动机不同：FlashAttention 是为了访存连续，
+而 NSA 是<b>把它当成数据先验</b>，去匹配 attention 自身的统计性质。</p>
+</section>
+
+<section id="takeaway">
+<h2>7. 核心总结：什么值得记住</h2>
+
+<ol>
+<li><b>"Native"是关键词</b>：sparse 必须从预训练第一步就在，否则模型既学不到稀疏路径也学不到 dense 路径——只在推理时拍稀疏几乎一定掉点。</li>
+<li><b>三分支设计的工程妙手</b>：cmp（全局摘要）+ slc（细粒度 top-n）+ win（局部）三路独立 KV + gate 加权。
+独立 KV 防止 sliding 短路其他分支，gate 让模型按 query 决策。</li>
+<li><b>复用 cmp 分数当 selection 分数</b>是论文最锋利的一刀——不引入额外打分网络、不增加显式损失，
+sparse 的 importance estimator 就是 dense attention 必算的中间产物，<b>零额外开销 + 全程可微</b>。</li>
+<li><b>GQA-aware kernel</b>：把外层 grid 切成 GQA group 而非 query block，让组内 head 共享同一组 KV block 索引——
+这是把"理论 FLOPs 节省"转成"wall-clock 加速"的核心工程开关。</li>
+<li><b>实验最反共识的一组数据</b>：NSA 在通用 benchmark 上反超 Full Attention 7/9 项，CoT 推理 AIME-8K 是 Full-R 的 2.6 倍。
+sparse 不只是"省钱选项"——它对长程推理是<b>正则增益</b>。</li>
+<li><b>速度的"长度回报"</b>：64K 上前向 9×、反向 6×、解码 11.6×；序列越长，加速越激进。
+长上下文场景里 NSA 的相对收益还会继续扩大。</li>
+</ol>
+
+<div class="highlight">
+<b>论文未明说但值得思考的点</b>：
+NSA 的设计是为 GQA-MoE 这一类"分组共享 KV + 大量 expert"的架构量身打造的——
+在纯 MHA 模型上 group-centric kernel 的优势会显著缩水。
+另外 cmp block 大小 $l = 32$、selection block $l' = 64$ 这种超参的最优值是否随模型规模变化、
+是否随领域（代码 vs 自然语言）变化，论文没给完整 sweep。
+最后，NSA 现在还是<b>"通用稀疏 attention"</b>——它没有像 DSA 那样把 sparse 直接铺到全部层，
+也没有讨论与 MLA / latent attention 的组合。这两个方向是后续工作明显的扩展面。
+</div>
+</section>
+
+<section id="refs">
+<h2>参考资源</h2>
+<ul>
+<li>arXiv 论文：<a href="https://arxiv.org/abs/2502.11089">arXiv:2502.11089</a></li>
+<li>FlashAttention-2 / Triton：作为 NSA kernel 的 baseline 与实现框架</li>
+<li>DeepSeekMoE：<a href="https://arxiv.org/abs/2401.06066">arXiv:2401.06066</a>，NSA 主实验骨架</li>
+<li>DeepSeek-R1：<a href="https://arxiv.org/abs/2501.12948">arXiv:2501.12948</a>，AIME 蒸馏 teacher</li>
+<li>对比方法：H2O (2305)、Quest (2406.10774)、InfLLM、ClusterKV (2412.03213)、HashAttention (2412.14468)、SeerAttention (2410.13276)</li>
+<li>YaRN：<a href="https://arxiv.org/abs/2309.00071">arXiv:2309.00071</a>，长文继续训练用的 RoPE 外推</li>
+<li>LongBench / NIAH / AIME 24：评测 benchmark</li>
+</ul>
+
+<div class="footer">
+本报告基于 NSA 公开 arXiv v2 (2025-02-27)。所有图均自论文源代码 (<code>arXiv:2502.11089</code>) 中 figures/*.pdf 提取并按 PDF 中 Figure 编号重命名为 <code>figXX_*.png</code>。
+</div>
+</section>
+
+</main>
+</body>
+</html>

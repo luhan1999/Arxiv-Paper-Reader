@@ -106,6 +106,23 @@ footer a{color:#444}
     </div>
   </a>
 
+  <a class="paper" href="Native-Sparse-Attention/">
+    <span class="num">2025/02 · arXiv:2502.11089</span>
+    <h3 class="title">Native Sparse Attention: Hardware-Aligned and Natively Trainable Sparse Attention</h3>
+    <p class="authors">DeepSeek-AI · Peking University · University of Washington</p>
+    <p class="summary">
+      NSA 是一个<b>原生可训练</b>的稀疏注意力架构——sparsity 从预训练第一步就参与梯度，而不是事后剪枝。三分支设计：(1) <b>Token Compression</b> 用 MLP 把连续 KV block 压成摘要向量做粗粒度全局视野；(2) <b>Token Selection</b> <u>直接复用 cmp 分支的 softmax 分数</u>当 importance score 挑 top-n 块——零额外打分开销且全程可微；(3) <b>Sliding Window</b> 独立分支专管局部模式防短路。配套 <b>GQA-grouped Triton kernel</b> 把外层切成 GQA group 让组内 head 共享 KV 索引。在 27B/3B GQA-MoE 上预训练 270B token，9 项通用 benchmark 中 7 项<b>反超 Full Attention</b>，64K NIAH 满分；64K 序列上 9.0× 前向 / 6.0× 反向 / 11.6× 解码加速。
+    </p>
+    <div class="tags">
+      <span class="tag k">Native Sparse</span>
+      <span class="tag">Sparse Attention</span>
+      <span class="tag">GQA-aware Kernel</span>
+      <span class="tag">Triton</span>
+      <span class="tag">长上下文</span>
+      <span class="tag">MoE</span>
+    </div>
+  </a>
+
 </div>
 
 <h2>关于</h2>
