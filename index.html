@@ -52,6 +52,24 @@ footer a{color:#444}
 
 <div class="paper-list">
 
+  <a class="paper" href="DeepSeek-V4-Towards-Highly-Efficient-Million-Token-Context-Intelligence/">
+    <span class="num">2026/05 · Hugging Face PDF</span>
+    <h3 class="title">DeepSeek-V4: Towards Highly Efficient Million-Token Context Intelligence</h3>
+    <p class="authors">DeepSeek-AI</p>
+    <p class="summary">
+      DeepSeek-V4 系列把百万 token 上下文从“窗口长度指标”推进到模型、训练、推理和 agent 服务的联合设计。架构上引入 <b>CSA/HCA 混合注意力</b>：CSA 先压缩 KV 再用 lightning indexer 做 top-k 稀疏检索，HCA 用 $m'=128$ 的重压缩保留低成本全局记忆；用 <b>mHC</b> 将残差流扩展到多通道并通过双随机矩阵约束稳定深层传播；大部分权重矩阵改用 <b>Muon</b>，配合 query/KV RMSNorm 避免 QK-Clip。系统侧还包括异构 KV cache、on-disk 前缀复用、TileLang kernel、百万 token RL rollout 与 On-Policy Distillation。
+    </p>
+    <div class="tags">
+      <span class="tag k">Million-Token Context</span>
+      <span class="tag">CSA/HCA</span>
+      <span class="tag">mHC</span>
+      <span class="tag">Muon</span>
+      <span class="tag">MoE</span>
+      <span class="tag">On-Policy Distillation</span>
+      <span class="tag">KV Cache</span>
+    </div>
+  </a>
+
   <a class="paper" href="GLM-5-Technical-Report/">
     <span class="num">2026/02 · arXiv:2602.15763</span>
     <h3 class="title">GLM-5: from Vibe Coding to Agentic Engineering</h3>
