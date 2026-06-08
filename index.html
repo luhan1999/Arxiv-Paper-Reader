@@ -7,156 +7,233 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
-  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 <style>
 :root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.8 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
 .wrap{max-width:880px;margin:0 auto;padding:56px 32px 120px}
-header{border-bottom:2px solid #000;padding-bottom:18px;margin-bottom:30px}
-h1{font-size:30px;margin:0 0 6px;color:#000;letter-spacing:0.5px}
+header{border-bottom:2px solid #000;padding-bottom:18px;margin-bottom:22px}
+h1{font-size:30px;margin:0 0 6px;color:#000;letter-spacing:.5px}
 .tagline{font-size:13.5px;color:var(--muted);margin:0}
 .meta{font-size:12px;color:var(--muted);margin-top:10px}
 .meta a{color:#444}
-h2{font-size:18px;color:#000;margin:36px 0 14px;padding-bottom:6px;border-bottom:1px solid var(--line);letter-spacing:1px;text-transform:uppercase}
-.paper-list{display:flex;flex-direction:column;gap:14px}
-.paper{border:1px solid var(--line);padding:18px 20px;background:#fff;transition:border-color .15s,background .15s;text-decoration:none;color:inherit;display:block}
+
+/* 工具条 */
+.toolbar{position:sticky;top:0;background:var(--bg);padding:14px 0 12px;margin-bottom:8px;border-bottom:1px solid var(--line);z-index:5}
+.searchbox{position:relative;margin-bottom:10px}
+.searchbox input{width:100%;padding:9px 12px 9px 34px;border:1px solid var(--line);background:#fff;font:14px 'STIX Two Text','Noto Serif SC',serif;color:#222}
+.searchbox input:focus{outline:none;border-color:#000}
+.searchbox::before{content:"🔍";position:absolute;left:11px;top:8px;font-size:13px;opacity:.6}
+.statbar{font-size:12px;color:var(--muted);margin-bottom:10px;letter-spacing:.3px}
+.statbar b{color:#000}
+.tabs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px}
+.tab{border:1px solid #aaa;background:#fff;color:#444;padding:3px 12px;font-size:12.5px;cursor:pointer;letter-spacing:.5px;font-family:inherit}
+.tab:hover{border-color:#000;color:#000}
+.tab.active{background:#000;color:#fff;border-color:#000}
+.tab .c{opacity:.6;font-size:11px;margin-left:4px}
+.tab.active .c{opacity:.8}
+.tagcloud{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+.tagchip{border:1px solid #ccc;background:#fafafa;color:#555;padding:1px 9px;font-size:11px;cursor:pointer;letter-spacing:.3px}
+.tagchip:hover{border-color:#000;color:#000}
+.tagchip.on{background:#000;color:#fff;border-color:#000}
+.tagcloud .clear{border:none;background:none;color:#999;font-size:11px;cursor:pointer;text-decoration:underline;padding:1px 4px}
+
+/* 分类分组（details 折叠） */
+.cat{margin:22px 0;border:1px solid var(--line)}
+.cat>summary{list-style:none;cursor:pointer;padding:13px 18px;background:var(--soft);display:flex;align-items:center;gap:10px;user-select:none}
+.cat>summary::-webkit-details-marker{display:none}
+.cat>summary .arrow{font-size:11px;color:#888;transition:transform .15s;display:inline-block;width:12px}
+.cat[open]>summary .arrow{transform:rotate(90deg)}
+.cat>summary .ico{font-size:16px}
+.cat>summary .clabel{font-size:16px;font-weight:700;color:#000;letter-spacing:.5px}
+.cat>summary .cdesc{font-size:12px;color:var(--muted);font-style:italic;margin-left:auto;text-align:right}
+.cat>summary .ccount{font-size:12px;color:#000;border:1px solid #000;border-radius:10px;padding:0 8px;margin-left:4px}
+.cat-body{padding:14px 16px 4px}
+
+.paper-list{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
+.paper{border:1px solid var(--line);background:#fff;transition:border-color .15s,background .15s}
 .paper:hover{border-color:#000;background:#fafaf7}
-.paper .num{display:inline-block;font-size:11px;color:var(--muted);letter-spacing:1.5px;margin-bottom:4px}
-.paper .title{font-size:17px;font-weight:700;color:#000;margin:0 0 6px;line-height:1.4}
-.paper .authors{font-size:12.5px;color:var(--muted);margin:0 0 8px;font-style:italic}
-.paper .summary{font-size:13.5px;color:#333;margin:0 0 10px;line-height:1.7}
-.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.tag{display:inline-block;border:1px solid #aaa;color:#333;padding:1px 8px;font-size:11px;letter-spacing:0.5px}
+.paper .head{padding:15px 18px 12px;text-decoration:none;color:inherit;display:block}
+.paper .num{display:inline-block;font-size:11px;color:var(--muted);letter-spacing:1.2px;margin-bottom:4px}
+.paper .title{font-size:16px;font-weight:700;color:#000;margin:0 0 5px;line-height:1.42}
+.paper .authors{font-size:12px;color:var(--muted);margin:0;font-style:italic}
+.paper details.sm{border-top:1px dashed var(--line);margin:0 18px}
+.paper details.sm>summary{list-style:none;cursor:pointer;font-size:11.5px;color:#888;padding:7px 0;letter-spacing:.5px;user-select:none}
+.paper details.sm>summary::-webkit-details-marker{display:none}
+.paper details.sm>summary:hover{color:#000}
+.paper details.sm[open]>summary{color:#000}
+.paper .summary{font-size:13.5px;color:#333;line-height:1.72;padding:0 0 12px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;padding:0 18px 15px}
+.tag{display:inline-block;border:1px solid #aaa;color:#333;padding:1px 8px;font-size:11px;letter-spacing:.4px;cursor:pointer}
+.tag:hover{border-color:#000}
 .tag.k{background:#000;color:#fff;border-color:#000}
-.empty{border:1px dashed var(--line);padding:24px;text-align:center;color:var(--muted);font-size:13px;font-style:italic}
+.tag.k:hover{background:#333}
+
+.empty{border:1px dashed var(--line);padding:20px;text-align:center;color:var(--muted);font-size:12.5px;font-style:italic}
+.noresult{padding:40px;text-align:center;color:var(--muted);font-style:italic}
+
 footer{margin-top:60px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);text-align:center;line-height:1.7}
 footer a{color:#444}
-@media(max-width:640px){.wrap{padding:32px 18px 80px}h1{font-size:24px}}
+.about{font-size:13px;color:#333;line-height:1.8;margin-top:40px;border-top:1px solid var(--line);padding-top:18px}
+.about code{background:#f3f3f3;padding:1px 5px;font-size:12px}
+@media(max-width:640px){.wrap{padding:32px 18px 80px}h1{font-size:24px}.cat>summary .cdesc{display:none}}
 </style>
 </head>
 <body>
 <div class="wrap">
 
 <header>
-  <h1>Arxiv Paper Reader</h1>
-  <p class="tagline">学术论文中文深度解读合集 · LaTeX 风格 HTML 报告</p>
+  <h1 id="site-title">Arxiv Paper Reader</h1>
+  <p class="tagline" id="site-tagline"></p>
   <p class="meta">
-    本页汇总了对若干 arXiv 论文的中文深度解读，每篇报告均提取原文图、关键公式与实验结果，并按"问题 → 方法 → 实验 → 局限 → 总结"的结构重写。
-    源码与素材：<a href="https://github.com/luhan1999/Arxiv-Paper-Reader">github.com/luhan1999/Arxiv-Paper-Reader</a>
+    每篇报告提取原文图、关键公式与实验结果，按“问题 → 方法 → 实验 → 局限 → 总结”重写。
+    源码：<a id="repo-link" href="#">GitHub</a>
   </p>
 </header>
 
-<h2>论文列表</h2>
-
-<div class="paper-list">
-
-  <a class="paper" href="DeepSeek-V4-Towards-Highly-Efficient-Million-Token-Context-Intelligence/">
-    <span class="num">2026/05 · Hugging Face PDF</span>
-    <h3 class="title">DeepSeek-V4: Towards Highly Efficient Million-Token Context Intelligence</h3>
-    <p class="authors">DeepSeek-AI</p>
-    <p class="summary">
-      DeepSeek-V4 系列把百万 token 上下文从“窗口长度指标”推进到模型、训练、推理和 agent 服务的联合设计。架构上引入 <b>CSA/HCA 混合注意力</b>：CSA 先压缩 KV 再用 lightning indexer 做 top-k 稀疏检索，HCA 用 $m'=128$ 的重压缩保留低成本全局记忆；用 <b>mHC</b> 将残差流扩展到多通道并通过双随机矩阵约束稳定深层传播；大部分权重矩阵改用 <b>Muon</b>，配合 query/KV RMSNorm 避免 QK-Clip。系统侧还包括异构 KV cache、on-disk 前缀复用、TileLang kernel、百万 token RL rollout 与 On-Policy Distillation。
-    </p>
-    <div class="tags">
-      <span class="tag k">Million-Token Context</span>
-      <span class="tag">CSA/HCA</span>
-      <span class="tag">mHC</span>
-      <span class="tag">Muon</span>
-      <span class="tag">MoE</span>
-      <span class="tag">On-Policy Distillation</span>
-      <span class="tag">KV Cache</span>
-    </div>
-  </a>
-
-  <a class="paper" href="GLM-5-Technical-Report/">
-    <span class="num">2026/02 · arXiv:2602.15763</span>
-    <h3 class="title">GLM-5: from Vibe Coding to Agentic Engineering</h3>
-    <p class="authors">GLM-5 Team · Zhipu AI &amp; Tsinghua University</p>
-    <p class="summary">
-      GLM-5 是 <b>744B 总参 / 40B 激活</b> 的下一代 MoE 旗舰，首个 AA Intelligence Index v4.0 拿到 <b>50</b> 的开源模型。技术四件套：(1) <b>MLA + Muon Split + MLA-256</b> 让 latent attention 追平 GQA-8 同时降低 decoding 成本；(2) <b>共享参数 3 层 MTP</b> draft 模型 acceptance 长度 2.76 高于 DeepSeek-V3.2 的 2.55；(3) 在 base 上做 <b>DSA 持续预训练</b>，仅 20B token 即把 sparse attention 在长文本上无损切换；(4) 全异步 RL（slime）+ <b>TITO Gateway</b> + 双侧 importance sampling + 跨阶段在线蒸馏，让 100k 级 long-horizon agent rollout 不阻塞训练。SWE-Bench Verified 77.8、Vending-Bench 2 一年余额 4,432 USD。
-    </p>
-    <div class="tags">
-      <span class="tag k">Agentic Engineering</span>
-      <span class="tag">DSA</span>
-      <span class="tag">MLA + Muon Split</span>
-      <span class="tag">Shared MTP</span>
-      <span class="tag">Async RL</span>
-      <span class="tag">TITO Gateway</span>
-      <span class="tag">Cross-Stage Distillation</span>
-      <span class="tag">Chinese Chips</span>
-    </div>
-  </a>
-
-  <a class="paper" href="MiMo-V2-Flash-Technical-Report/">
-    <span class="num">2026/01 · arXiv:2601.02780</span>
-    <h3 class="title">MiMo-V2-Flash Technical Report</h3>
-    <p class="authors">LLM-Core Xiaomi</p>
-    <p class="summary">
-      MiMo-V2-Flash 是 309B 总参 / 15B 激活的 MoE 模型，三大支柱：(1) <b>5:1 Hybrid Sliding Window Attention</b>（窗口仅 128 + 学习型 attention sink），KV 缓存与注意力计算降至约 1/6；(2) 轻量化 <b>Multi-Token Prediction</b> 既作训练目标也作 self-speculative draft，3 层 MTP 实测 <b>2.6× 解码加速</b>；(3) <b>MOPD（Multi-Teacher On-Policy Distillation）</b>把多领域 RL 教师的 token 级 reverse-KL 与 ORM 优势相加，缓解多技能跷跷板。SWE-Bench Multilingual 71.7 居开源第一。
-    </p>
-    <div class="tags">
-      <span class="tag k">MOPD</span>
-      <span class="tag">Hybrid SWA</span>
-      <span class="tag">Attention Sink</span>
-      <span class="tag">MTP</span>
-      <span class="tag">Speculative Decoding</span>
-      <span class="tag">Agentic RL</span>
-      <span class="tag">MoE</span>
-    </div>
-  </a>
-
-  <a class="paper" href="DeepSeek-V3.2-Pushing-the-Frontier-of-Open-LLMs/">
-    <span class="num">2025/12 · arXiv:2512.02556</span>
-    <h3 class="title">DeepSeek-V3.2: Pushing the Frontier of Open Large Language Models</h3>
-    <p class="authors">DeepSeek-AI</p>
-    <p class="summary">
-      DeepSeek-V3.2 在 V3.1-Terminus 基础上引入 <b>DeepSeek Sparse Attention (DSA)</b>，把核心注意力复杂度从 $O(L^2)$ 降为 $O(Lk)$；将 RL 后训练的 compute 推到预训练成本的 10%+；并构建 1,827 个合成 agent 环境 + 8.5 万复杂提示词的数据管线。其 high-compute 变体 <b>Speciale</b> 在 IMO/IOI/CMO/ICPC WF 2025 全部夺金。
-    </p>
-    <div class="tags">
-      <span class="tag k">Sparse Attention</span>
-      <span class="tag">DSA</span>
-      <span class="tag">GRPO Scaling</span>
-      <span class="tag">Agentic RL</span>
-      <span class="tag">长上下文</span>
-      <span class="tag">MoE</span>
-    </div>
-  </a>
-
-  <a class="paper" href="Native-Sparse-Attention/">
-    <span class="num">2025/02 · arXiv:2502.11089</span>
-    <h3 class="title">Native Sparse Attention: Hardware-Aligned and Natively Trainable Sparse Attention</h3>
-    <p class="authors">DeepSeek-AI · Peking University · University of Washington</p>
-    <p class="summary">
-      NSA 是一个<b>原生可训练</b>的稀疏注意力架构——sparsity 从预训练第一步就参与梯度，而不是事后剪枝。三分支设计：(1) <b>Token Compression</b> 用 MLP 把连续 KV block 压成摘要向量做粗粒度全局视野；(2) <b>Token Selection</b> <u>直接复用 cmp 分支的 softmax 分数</u>当 importance score 挑 top-n 块——零额外打分开销且全程可微；(3) <b>Sliding Window</b> 独立分支专管局部模式防短路。配套 <b>GQA-grouped Triton kernel</b> 把外层切成 GQA group 让组内 head 共享 KV 索引。在 27B/3B GQA-MoE 上预训练 270B token，9 项通用 benchmark 中 7 项<b>反超 Full Attention</b>，64K NIAH 满分；64K 序列上 9.0× 前向 / 6.0× 反向 / 11.6× 解码加速。
-    </p>
-    <div class="tags">
-      <span class="tag k">Native Sparse</span>
-      <span class="tag">Sparse Attention</span>
-      <span class="tag">GQA-aware Kernel</span>
-      <span class="tag">Triton</span>
-      <span class="tag">长上下文</span>
-      <span class="tag">MoE</span>
-    </div>
-  </a>
-
+<div class="toolbar">
+  <div class="searchbox"><input id="search" type="text" placeholder="搜索标题 / 摘要 / 标签 / 作者…"></div>
+  <div class="statbar" id="statbar"></div>
+  <div class="tabs" id="tabs"></div>
+  <div class="tagcloud" id="tagcloud"></div>
 </div>
 
-<h2>关于</h2>
-<p style="font-size:13.5px;color:#333;line-height:1.8">
-  每篇报告是一个独立的子目录，结构为 <code style="background:#f3f3f3;padding:1px 5px;font-size:12.5px">论文标题/index.html + images/</code>。
-  风格统一：衬线字体、黑白灰、KaTeX 渲染公式、原文图直接嵌入。
-  使用 GitHub Pages 静态托管，所有外链资源（字体、KaTeX）走 CDN。
-</p>
+<main id="content"></main>
+
+<div class="about">
+  每篇报告是独立子目录，结构为 <code>分类/报告slug/index.html + images/</code>。
+  风格统一：衬线字体、黑白灰、KaTeX 公式、原文图直接嵌入。GitHub Pages 静态托管，加新报告只需在 <code>papers.js</code> 增一条记录。
+</div>
 
 <footer>
-  Built with care · Hosted on GitHub Pages · 持续更新中
-  <br>
+  Built with care · Hosted on GitHub Pages · 持续更新中<br>
   © <span id="y"></span> luhan1999
-  <script>document.getElementById('y').textContent=new Date().getFullYear()</script>
 </footer>
 
 </div>
+
+<script src="papers.js"></script>
+<script>
+(function(){
+  var S = window.SITE, P = S.PAPERS, CATS = S.CATEGORIES;
+  document.getElementById('site-title').textContent = S.title;
+  document.getElementById('site-tagline').textContent = S.tagline;
+  document.getElementById('repo-link').href = S.repo;
+  document.getElementById('repo-link').textContent = S.repo.replace('https://','');
+  document.getElementById('y').textContent = new Date().getFullYear();
+
+  var state = { q:"", cat:"all", tags:[] };
+
+  // ---- 标签全集（按出现频次排序）----
+  var tagFreq = {};
+  P.forEach(function(p){ (p.tags||[]).forEach(function(t){ tagFreq[t]=(tagFreq[t]||0)+1; }); });
+  var allTags = Object.keys(tagFreq).sort(function(a,b){ return tagFreq[b]-tagFreq[a] || a.localeCompare(b); });
+
+  // ---- 分类 Tab ----
+  var tabsEl = document.getElementById('tabs');
+  function catCount(id){ return P.filter(function(p){return p.category===id;}).length; }
+  var tabs = [{id:"all",label:"全部",count:P.length}].concat(CATS.map(function(c){
+    return {id:c.id,label:c.icon+" "+c.label,count:catCount(c.id)};
+  }));
+  tabs.forEach(function(t){
+    var b=document.createElement('button'); b.className='tab'+(t.id==='all'?' active':'');
+    b.dataset.cat=t.id; b.innerHTML=t.label+'<span class="c">'+t.count+'</span>';
+    b.onclick=function(){ state.cat=t.id; document.querySelectorAll('.tab').forEach(function(x){x.classList.toggle('active',x.dataset.cat===t.id);}); render(); };
+    tabsEl.appendChild(b);
+  });
+
+  // ---- 标签云 ----
+  var cloudEl = document.getElementById('tagcloud');
+  function buildCloud(){
+    cloudEl.innerHTML='';
+    allTags.forEach(function(t){
+      var c=document.createElement('span'); c.className='tagchip'+(state.tags.indexOf(t)>=0?' on':'');
+      c.textContent='#'+t;
+      c.onclick=function(){ var i=state.tags.indexOf(t); if(i>=0)state.tags.splice(i,1); else state.tags.push(t); buildCloud(); render(); };
+      cloudEl.appendChild(c);
+    });
+    if(state.tags.length){
+      var cl=document.createElement('button'); cl.className='clear'; cl.textContent='清除标签('+state.tags.length+')';
+      cl.onclick=function(){ state.tags=[]; buildCloud(); render(); };
+      cloudEl.appendChild(cl);
+    }
+  }
+
+  // ---- 搜索 ----
+  document.getElementById('search').addEventListener('input',function(e){ state.q=e.target.value.trim().toLowerCase(); render(); });
+
+  function match(p){
+    if(state.cat!=='all' && p.category!==state.cat) return false;
+    if(state.tags.length && !state.tags.every(function(t){return (p.tags||[]).indexOf(t)>=0;})) return false;
+    if(state.q){
+      var hay=(p.title+' '+p.summary+' '+(p.authors||'')+' '+(p.tags||[]).join(' ')+' '+(p.source||'')).toLowerCase();
+      if(hay.indexOf(state.q)<0) return false;
+    }
+    return true;
+  }
+
+  function fmtDate(d){ return d.replace('-','/'); }
+
+  function paperCard(p){
+    var el=document.createElement('div'); el.className='paper';
+    var tagsHtml=(p.tags||[]).map(function(t,i){return '<span class="tag'+(i===0?' k':'')+'" data-tag="'+t.replace(/"/g,'')+'">'+t+'</span>';}).join('');
+    el.innerHTML =
+      '<a class="head" href="'+p.path+'">'+
+        '<span class="num">'+fmtDate(p.date)+' · '+(p.source||'')+'</span>'+
+        '<h3 class="title">'+p.title+'</h3>'+
+        (p.authors?'<p class="authors">'+p.authors+'</p>':'')+
+      '</a>'+
+      '<details class="sm"><summary>▸ 摘要</summary><div class="summary">'+p.summary+'</div></details>'+
+      '<div class="tags">'+tagsHtml+'</div>';
+    // 标签点击 = 加入筛选
+    el.querySelectorAll('.tag').forEach(function(tg){
+      tg.onclick=function(ev){ ev.preventDefault(); var t=tg.dataset.tag;
+        if(state.tags.indexOf(t)<0){state.tags.push(t); buildCloud(); render();} };
+    });
+    return el;
+  }
+
+  function render(){
+    var content=document.getElementById('content');
+    content.innerHTML='';
+    var visible=P.filter(match);
+
+    // 统计条
+    var byCat=CATS.map(function(c){ return c.label+' '+P.filter(function(p){return p.category===c.id;}).length; }).join(' · ');
+    document.getElementById('statbar').innerHTML='共 <b>'+P.length+'</b> 篇 · '+byCat+(visible.length!==P.length?'　|　当前筛出 <b>'+visible.length+'</b> 篇':'');
+
+    if(!visible.length){ content.innerHTML='<div class="noresult">没有匹配的报告 — 试试清空搜索或标签筛选。</div>'; return; }
+
+    // 是否处于“筛选态”（搜索/标签/非全部分类）→ 自动展开所有命中分组
+    var filtering = !!(state.q || state.tags.length || state.cat!=='all');
+
+    CATS.forEach(function(c){
+      var items=visible.filter(function(p){return p.category===c.id;})
+                       .sort(function(a,b){return b.date.localeCompare(a.date);});
+      // 全部分类视图下，空分类也显示（带空状态）；筛选态下空分类隐藏
+      if(filtering && !items.length) return;
+
+      var det=document.createElement('details'); det.className='cat';
+      det.open = filtering ? true : c.defaultOpen;
+      var sum=document.createElement('summary');
+      sum.innerHTML='<span class="arrow">▶</span><span class="ico">'+c.icon+'</span>'+
+        '<span class="clabel">'+c.label+'</span><span class="ccount">'+items.length+'</span>'+
+        '<span class="cdesc">'+c.desc+'</span>';
+      det.appendChild(sum);
+      var body=document.createElement('div'); body.className='cat-body';
+      if(!items.length){ body.innerHTML='<div class="empty">该分类暂无报告，敬请期待。</div>'; }
+      else { var list=document.createElement('div'); list.className='paper-list';
+             items.forEach(function(p){ list.appendChild(paperCard(p)); }); body.appendChild(list); }
+      det.appendChild(body);
+      content.appendChild(det);
+    });
+
+    if(window.renderMathInElement){ try{renderMathInElement(content,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});}catch(e){} }
+  }
+
+  buildCloud(); render();
+})();
+</script>
 </body>
 </html>

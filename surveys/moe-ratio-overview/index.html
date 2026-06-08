@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MoE 激活参数占比与 Dense/共享专家比例 — 文献综述</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:250px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px}
+.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}
+.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}
+.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:250px;max-width:900px;padding:48px 44px 120px}
+h1{font-size:27px;line-height:1.35;margin:0 0 6px;color:#000}
+.subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+h2{font-size:21px;color:#000;margin:38px 0 12px;padding-bottom:6px;border-bottom:2px solid #000}
+h3{font-size:16.5px;color:#000;margin:26px 0 8px}
+h4{font-size:14.5px;color:#000;margin:18px 0 6px;font-weight:700}
+p{margin:0 0 12px;text-align:justify}
+.card,.highlight{border:1px solid var(--line);padding:18px;margin:16px 0;background:#fff}
+.highlight{background:#f7f7f2;border-left:3px solid #000}
+.warn{background:#fbf6ec;border-left:3px solid #b8860b}
+.figure-box{border:1px solid #ccc;padding:14px;text-align:center;margin:20px auto;background:#fff}
+.figure-box img{max-width:100%;height:auto}
+.caption{font-size:12px;color:#444;margin-top:8px;line-height:1.65;font-style:italic;text-align:left}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:12.5px}
+th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left;vertical-align:top}
+td{border-bottom:1px solid #ddd;padding:7px 9px;vertical-align:top}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
+.metric-card{border:1px solid #ccc;text-align:center;padding:14px}
+.metric-card .value{font-size:23px;font-weight:700;color:#000}
+.metric-card .label{font-size:11px;color:#666;margin-top:4px}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto}
+.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px;border-radius:2px}
+.tag.ab{background:#e8f0e8;border-color:#5a8a5a}
+.tag.rep{background:#f0eae8;border-color:#a07a6a}
+.paper-head{border:1px solid var(--line);background:#fafafa;padding:14px 18px;margin:24px 0 10px}
+.paper-head .pt{font-size:16px;font-weight:700;color:#000;margin-bottom:4px}
+.paper-head .pm{font-size:12px;color:#666}
+.paper-head a{color:#333}
+ul,ol{margin:0 0 12px;padding-left:22px} li{margin-bottom:5px;text-align:justify}
+code{background:#f0f0f0;padding:1px 5px;font-size:12.5px;font-family:'SF Mono',Menlo,monospace}
+.lead{font-size:15.5px;color:#333}
+.dim-pill{display:inline-block;font-weight:700;border:1px solid #000;border-radius:3px;padding:0 7px;margin-right:5px;font-size:12px}
+@media(max-width:980px){.toc-sidebar{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line)}.main{margin-left:0;padding:24px 20px 80px}}
+</style>
+</head>
+<body>
+<nav class="toc-sidebar">
+  <h2>目录</h2>
+  <a href="#overview">摘要 Overview</a>
+  <a href="#framework" class="sub">四维度比例框架</a>
+  <a href="#landscape" class="sub">论文全景表</a>
+  <a href="#design">合理实验设计模板</a>
+  <a href="#A">维度 A · 共享:路由比例</a>
+  <a href="#p-dsmoe" class="sub">DeepSeekMoE ★</a>
+  <a href="#p-olmoe" class="sub">OLMoE ★</a>
+  <a href="#p-statben" class="sub">On DeepSeekMoE (理论)</a>
+  <a href="#B">维度 C · 粒度 Granularity</a>
+  <a href="#p-gran" class="sub">Fine-Grained Scaling ★</a>
+  <a href="#C">维度 D · 激活/总参数稀疏度</a>
+  <a href="#p-apple" class="sub">Params vs FLOPs (Apple) ★</a>
+  <a href="#p-unified" class="sub">Unified Scaling (DeepMind) ★</a>
+  <a href="#p-google" class="sub">Sparsely-Connected (Google) ★</a>
+  <a href="#D">维度 B · Dense 层 / 混合架构</a>
+  <a href="#p-jamba" class="sub">Jamba</a>
+  <a href="#reports">工业技术报告(固定值)</a>
+  <a href="#synthesis">横向综合与结论</a>
+  <a href="#sources">论文出处</a>
+</nav>
+
+<div class="main">
+<h1>MoE 大模型中的"比例"设计：Dense / 共享专家 / 激活参数占比<br>文献综述</h1>
+<div class="subtitle">A Survey on Activation-Ratio, Shared-vs-Routed, Granularity and Sparsity Design in LLM MoE Architectures · 2026-06 · 覆盖 16 篇论文 / 技术报告</div>
+
+<div class="highlight">
+<b>一句话结论。</b> 你常说的 "share : MoE = 1:6 / 1:8" 在文献里其实混合了 <b>四个互不相同的"比例"维度</b>。真正做了"固定算力、扫描比例"受控实验的论文只有 <b>6 篇</b>；其余十几篇大模型技术报告都是<b>直接采用固定值、不做消融</b>。本综述把这 6 篇消融论文的实验设计逐一拆开，并用工业报告作为真实大规模的"配置数据点"对照。
+</div>
+
+<!-- ============ OVERVIEW ============ -->
+<h2 id="overview">摘要 Overview</h2>
+<p class="lead">混合专家（Mixture-of-Experts, MoE）已成为前沿大模型的主流稀疏化手段。围绕"<b>多少参数应当被激活</b>"、"<b>共享专家与路由专家如何配比</b>"、"<b>专家切多细</b>"、"<b>多少层保持 Dense</b>"这四个问题，学界与工业界给出了不同甚至相互矛盾的答案。本文系统梳理 2022–2025 年间的代表性工作。</p>
+
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">16</div><div class="label">覆盖论文/报告</div></div>
+  <div class="metric-card"><div class="value">6</div><div class="label">做了受控比例消融</div></div>
+  <div class="metric-card"><div class="value">4</div><div class="label">独立"比例"维度</div></div>
+  <div class="metric-card"><div class="value">28%→3.2%</div><div class="label">激活率历史走势<br>(Mixtral→Kimi-K2)</div></div>
+</div>
+
+<h4>三条贯穿全文的核心发现</h4>
+<ol>
+<li><b>越稀疏越好，但有条件。</b> 在<b>预训练 loss</b> 与<b>固定算力</b>下，只要总参数预算不受限，更高的激活稀疏度（更小的激活/总参数比）几乎总是更优——Apple (2501.12370) 测到 98% 稀疏仍无拐点。工业界激活率从 Mixtral 的 28% 一路降到 Kimi-K2 的 3.2%，与此一致。</li>
+<li><b>专家要切得"细"，且最优粒度随规模上升。</b> 传统"一个专家 = 一整个 FFN"(粒度 $G{=}1$) 在几乎所有算力下都是次优；最优粒度 $G$ 随算力预算单调增长（2402.07871）。</li>
+<li><b>"共享专家"是当前最大的开放争议。</b> DeepSeek 系坚持保留 1–2 个共享专家并称其"不可替代"；而 OLMoE 与 Qwen3 在自己的规模上做实验/做决策后<b>取消了共享专家</b>。没有任何论文系统扫过"共享:路由 = 1:6 vs 1:8 vs 1:10"并给出最优值。</li>
+</ol>
+
+<!-- ============ FRAMEWORK ============ -->
+<h3 id="framework">先厘清：四个互不相同的"比例"维度</h3>
+<p>阅读所有论文前，必须把以下四个被口语统称为"比例"的概念分开，否则数字无法对话：</p>
+<table>
+<thead><tr><th style="width:13%">维度</th><th style="width:30%">定义</th><th style="width:30%">你说的 1:6 / 1:8 落在哪</th><th>典型取值</th></tr></thead>
+<tbody>
+<tr><td><span class="dim-pill">A</span>共享:路由<br>(激活口径)</td><td>每 token 激活的 <b>1 个共享专家 : N 个激活路由专家</b></td><td><b>✅ 就是这里</b>。DeepSeek-V3 = 1:8、Kimi-K2 = 1:8、DeepSeekMoE-16B = 2:6 = 1:3</td><td>1:3 ~ 1:8</td></tr>
+<tr><td><span class="dim-pill">B</span>共享:路由<br>(总数口径)</td><td>整层 shared 专家总数 : routed 专家总数</td><td>若你指总数，则现代细粒度 MoE 是 <b>1:64 ~ 1:256</b>，不是 1:6</td><td>1:64 ~ 1:256</td></tr>
+<tr><td><span class="dim-pill">C</span>粒度<br>Granularity $G$</td><td>$G = d_\text{ff} / d_\text{expert}$，FFN 维度 / 单专家维度，即"切多细"</td><td>与共享比例正交</td><td>$G{=}4{\sim}64$</td></tr>
+<tr><td><span class="dim-pill">D</span>激活/总参数<br>稀疏度 $S$</td><td>激活参数 / 总参数（或 $S=(E{-}K)/E$）</td><td>与共享比例正交</td><td>V3=5.5%；Kimi=3.2%</td></tr>
+</tbody>
+</table>
+<div class="card warn"><b>关键纠正。</b> 你印象里的 "1:6 / 1:8" 若指<b>总参数</b>（像 Mixtral 8 选 2 那样），那是<b>老式粗粒度做法</b>。现代主流（DeepSeek 系）总数比例是 1:64~1:256，只有<b>激活口径</b>才是 1:7~1:8。本综述按维度 A / C / D / B 的顺序组织论文。</div>
+
+<!-- ============ LANDSCAPE ============ -->
+<h3 id="landscape">论文全景表：谁真正做了"比例消融"</h3>
+<p><span class="tag ab">绿色 = 做了受控消融</span> <span class="tag rep">棕色 = 技术报告，仅采用固定值</span></p>
+<table>
+<thead><tr><th style="width:26%">论文 / 报告</th><th style="width:8%">年份</th><th style="width:13%">机构</th><th style="width:14%">主研究维度</th><th style="width:13%">是否扫描比例</th><th>核心比例结论</th></tr></thead>
+<tbody>
+<tr><td><b>DeepSeekMoE</b> 2401.06066</td><td>2024</td><td>DeepSeek</td><td>A 共享:路由</td><td><span class="tag ab">✅ 扫 1/2/4 共享</span></td><td>选 1 共享 : 3 激活路由 (1:3)；差异在噪声内</td></tr>
+<tr><td><b>Fine-Grained Scaling</b> 2402.07871</td><td>2024</td><td>U. Warsaw</td><td>C 粒度 $G$</td><td><span class="tag ab">✅ 扫 G∈{1..32}</span></td><td>$G{=}1$ 几乎总次优；最优 $G$ 随预算从 8 升到 64</td></tr>
+<tr><td><b>Params vs FLOPs</b> 2501.12370</td><td>2025</td><td>Apple</td><td>D 稀疏度 $S$</td><td><span class="tag ab">✅ 扫 S 0→98%</span></td><td>总参不限时越稀疏越好，S* 趋近 1.0</td></tr>
+<tr><td><b>Unified Scaling (Routed)</b> 2202.01169</td><td>2022</td><td>DeepMind</td><td>D 专家数 $E$</td><td><span class="tag ab">✅ 扫 E 2→512</span></td><td>甜点 E≈64–128；约 314 专家封顶</td></tr>
+<tr><td><b>OLMoE</b> 2409.02060</td><td>2024</td><td>Ai2</td><td>A 共享 + C 粒度</td><td><span class="tag ab">✅ 扫粒度+共享</span></td><td>1B 激活下<b>不要共享专家</b>；64 专家性价比最高</td></tr>
+<tr><td><b>Sparsely-Connected</b> 2309.08520</td><td>2023</td><td>Google DM</td><td>D 权重稀疏</td><td><span class="tag ab">✅ 扫 S 0→0.875</span></td><td>75% 稀疏是甜点；最优稀疏随数据上升</td></tr>
+<tr><td><b>On DeepSeekMoE</b> 2505.10860</td><td>2025</td><td>UT Austin 等</td><td>A 共享(理论)</td><td><span class="tag rep">理论分析，未扫数量</span></td><td>共享专家更省样本；"最优数量"列为开放问题</td></tr>
+<tr><td>DeepSeek-V2 2405.04434</td><td>2024</td><td>DeepSeek</td><td>采用值</td><td><span class="tag rep">❌ 沿用 DeepSeekMoE</span></td><td>2 共享 : 160 路由；21B/236B=8.9%</td></tr>
+<tr><td>DeepSeek-V3 2412.19437</td><td>2024</td><td>DeepSeek</td><td>采用值</td><td><span class="tag rep">❌ 沿用 V2</span></td><td>1 共享 : 256 路由；前 3 层 dense；5.5%</td></tr>
+<tr><td>Qwen2 2407.10671</td><td>2024</td><td>Alibaba</td><td>采用值</td><td><span class="tag rep">❌ 仅引用</span></td><td>8 共享 : 64 路由；14B/57B≈24.6%</td></tr>
+<tr><td>Qwen3 2505.09388</td><td>2025</td><td>Alibaba</td><td>采用值</td><td><span class="tag rep">❌ 直接删共享</span></td><td>0 共享 : 128 路由；约 1/10 激活率</td></tr>
+<tr><td>Hunyuan-Large 2411.02265</td><td>2024</td><td>Tencent</td><td>采用值</td><td><span class="tag rep">❌</span></td><td>1 共享 : 16 路由；52B/389B=13.4%</td></tr>
+<tr><td>Kimi-K2 2507.20534</td><td>2025</td><td>Moonshot</td><td>采用值</td><td><span class="tag rep">❌</span></td><td>1 共享 : 384 路由；32B/1T=3.2%（极稀疏）</td></tr>
+<tr><td>MiniMax-01 2501.08313</td><td>2025</td><td>MiniMax</td><td>采用值</td><td><span class="tag rep">❌</span></td><td>32 专家；45.9B/456B≈10%</td></tr>
+<tr><td>Skywork-MoE 2406.06563</td><td>2024</td><td>Skywork</td><td>采用值</td><td><span class="tag rep">❌</span></td><td>16 专家 top-2；约 15% 激活</td></tr>
+<tr><td>Jamba 2403.19887</td><td>2024</td><td>AI21</td><td>B Dense/MoE 层</td><td><span class="tag rep">❌ 仅 MoE 开关</span></td><td>每隔一层用 MoE；12B/52B≈23%</td></tr>
+<tr><td>Mixtral 2401.04088</td><td>2024</td><td>Mistral</td><td>采用值</td><td><span class="tag rep">❌</span></td><td>8 专家 top-2，无共享，G=1；13B/47B≈28%</td></tr>
+</tbody>
+</table>
+
+<!-- ============ DESIGN TEMPLATE ============ -->
+<h2 id="design">合理实验设计模板：六篇消融论文的共同方法</h2>
+<p>把 6 篇真正做受控实验的论文方法抽象出来，一个"研究比例影响"的标准实验应满足：</p>
+<div class="card">
+<ol>
+<li><b>固定一个轴，只扫研究对象。</b> 固定<b>激活参数</b>（≈推理算力）+ 固定<b>训练 tokens</b>，只改你要研究的那个比例。<u>绝不能让 FLOP 跟着变</u>——否则你测的是"算力差异"而非"比例差异"。DeepSeekMoE 反复强调"all compared models have the same number of total and activated parameters"。</li>
+<li><b>用 IsoFLOP / 多算力预算。</b> 至少 3–5 个算力档位，每档独立找最优，才能暴露所有 scaling-law 论文的共同规律：<b>最优比例随规模漂移</b>（Apple 用 5 档 3e19~1e21；粒度论文用 6 档；Google 扫 N×D×S 立方体）。</li>
+<li><b>主指标用预训练 loss / BPB / 困惑度。</b> 辅以下游 benchmark。小规模即可出趋势——DeepSeekMoE 与 OLMoE 都在 ≤130B tokens、≤2B 参数下得出结论。</li>
+<li><b>拟合 scaling law 外推。</b> 形如 $L(N, D, \text{ratio})$，用 Huber loss + BFGS/L-BFGS 拟合，再解出每个算力预算下的最优配置，而不是只在单一规模下两两比较。</li>
+<li><b>共享专家消融的陷阱。</b> 做 0/1/2/4 共享对比时，必须<b>保持激活专家总数恒定</b>——把一个<u>路由专家改成共享</u>，而不是凭空加一个。OLMoE 正是用"31 路由+1 共享激活 3" vs "32 路由激活 4"（都激活 4 个、参数算力相同）才得到可信结论。否则共享专家"看起来更好"只是因为多算了参数。</li>
+</ol>
+</div>
+
+<div class="formula">
+通用 MoE 粒度 scaling law（2402.07871）：
+$$ L(N, D, G) = c + \frac{g/G^{\gamma} + a}{N^{\alpha}} + \frac{b}{D^{\beta}} $$
+其中 $N$=激活参数，$D$=训练 token 数，$G$=粒度。$g/G^{\gamma}$ 项表明：增大粒度 $G$ 单调降低 loss（拟合 $\gamma\approx0.58$）。
+</div>
+
+<!-- ============ DIMENSION A ============ -->
+<h2 id="A">维度 A · 共享专家 : 路由专家比例</h2>
+<p>这是最贴近你"1:6 / 1:8"问题的维度。结论分两派：DeepSeek 系（保留共享）vs OLMoE/Qwen3（取消共享）。</p>
+
+<!-- DeepSeekMoE -->
+<div class="paper-head" id="p-dsmoe">
+<div class="pt">★ DeepSeekMoE: Towards Ultimate Expert Specialization in MoE Language Models</div>
+<div class="pm">DeepSeek-AI &amp; 北京大学 · ACL 2024 · arXiv <a href="https://arxiv.org/abs/2401.06066">2401.06066</a> · <b>唯一直接扫描"共享:路由比例"的论文</b></div>
+</div>
+<p>DeepSeekMoE 提出两大设计：<b>细粒度专家切分</b>（fine-grained segmentation）+ <b>共享专家隔离</b>（shared expert isolation）。它是本综述里<u>唯一</u>把"几个专家做共享"当作自变量来扫描的工作。</p>
+
+<div class="figure-box">
+  <img src="images/fig_dsmoe_arch.png" alt="DeepSeekMoE architecture">
+  <div class="caption"><b>Figure 1（架构）.</b> 从左到右三种结构：(a) 传统 Top-2 MoE（GShard，每个专家=完整 FFN）；(b) 细粒度切分——把每个专家切成更小的 $1/m$，专家数从 $N$ 变 $mN$，激活数也按比例增多，<b>参数与算力不变</b>但专家组合数暴增；(c) 共享专家隔离——把其中 $K_s$ 个专家固定为"始终激活"的共享专家（图中绿色），其余为路由专家。本图支撑论文的核心主张：在不增加参数/算力的前提下，更细的粒度 + 隔离共享专家能提升专家专业化程度。</div>
+</div>
+
+<h4>实验设计（Section 4.4, Figure 3）</h4>
+<p>三组消融，<b>全部固定</b>总参数 ≈2B、激活 ≈0.3B、训练 100B tokens（Pile）、固定 4.3T FLOPs/2K tokens，主指标为 <b>Pile 验证集 cross-entropy loss</b>：</p>
+<ul>
+<li><b>① 共享专家隔离：</b> 1 共享 vs 0 共享（把那个专家改回路由），总参数/算力不变。</li>
+<li><b>② 细粒度切分：</b> 在共享+路由框架下，把专家切成 2 份或 4 份 → 32（1 共享+31 路由）或 64（1 共享+63 路由）总专家，参数算力恒定。</li>
+<li><b>③ 共享:路由比例扫描（核心）：</b> 在 64 个细粒度专家、固定总数与激活数下，把指定为共享的数量设为 <b>1 / 2 / 4</b>，对应激活路由数随之改变，测 Pile loss。</li>
+</ul>
+
+<div class="figure-box">
+  <img src="images/fig_dsmoe_ablation.png" alt="DeepSeekMoE ablation normalized benchmark">
+  <div class="caption"><b>Figure 3（消融）.</b> 横轴为多个下游 benchmark（Pile / HellaSwag / PIQA 等），纵轴为按各任务最优值归一化后的相对性能。三条柱：GShard 基线（最浅）、+细粒度切分、+共享专家隔离（最深）。可见<b>细粒度切分与共享专家隔离两者都把柱子推高</b>，且在多数 benchmark 上叠加增益。本图支撑"两种策略各自独立贡献、且可叠加"的论点。注意：本图是策略<b>开/关</b>的对比，而 1/2/4 共享的<b>数量</b>扫描结果以正文 Pile loss 数字报告（见下表）。</div>
+</div>
+
+<h4>关键结果</h4>
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">1.808</div><div class="label">1 共享 · Pile loss</div></div>
+  <div class="metric-card"><div class="value">1.806</div><div class="label">2 共享 · Pile loss</div></div>
+  <div class="metric-card"><div class="value">1.811</div><div class="label">4 共享 · Pile loss</div></div>
+  <div class="metric-card"><div class="value">2.414</div><div class="label">0 共享 · Pile loss<br>(激活掉共享→暴涨)</div></div>
+</div>
+<ul>
+<li><b>共享数量扫描（核心问题）：</b> 1 / 2 / 4 共享给出 Pile loss = <b>1.808 / 1.806 / 1.811</b>。差异<b>落在噪声内</b>，2 共享微弱最优，但最终选 <b>1 共享 : 3 激活路由 (1:3)</b> 作为可放心放大的默认值。</li>
+<li><b>共享专家不可替代：</b> 关掉共享专家（多加一个路由补偿）后，等算力下 Pile loss 从 1.808 <b>暴涨到 2.414</b>。</li>
+<li><b>细粒度单调更好：</b> 16→32→64 专家性能单调提升。</li>
+<li><b>放大配置：</b> 16B 版用 2 共享 + 64 路由，激活 2 共享 + 6 路由（仍是 1:3）；首层保持 dense。</li>
+</ul>
+<div class="card warn"><b>局限（务必注意）。</b> 这个比例消融只在 <b>2B / 100B tokens 小规模、只看 Pile loss</b>，1/2/4 的差异（1.806~1.811）在噪声内，且<b>没有在 16B/145B 复测</b>。所以 <b>1:3 是"性价比默认值"，不是被证明的最优</b>。也没有跨模型规模的 scaling-law 式扫描。</div>
+
+<!-- OLMoE -->
+<div class="paper-head" id="p-olmoe">
+<div class="pt">★ OLMoE: Open Mixture-of-Experts Language Models</div>
+<div class="pm">Allen Institute for AI (Ai2) · 2024 · arXiv <a href="https://arxiv.org/abs/2409.02060">2409.02060</a> · <b>得出与 DeepSeek 相反的共享专家结论</b></div>
+</div>
+<p>OLMoE-1B-7B（6.9B 总 / 1.3B 激活，64 专家 top-8，<b>无共享</b>，全 MoE 层）。全开源，对<b>粒度</b>与<b>共享专家</b>各做一组严格消融，均固定激活/总参数/FLOPs，ablation 跑到约 130B tokens。</p>
+
+<h4>实验设计</h4>
+<ul>
+<li><b>粒度消融（Fig 5）：</b> 同步改变"专家数 × FFN 维度"使激活+总参数恒定。配置：8 专家（大，激活 1，组合数 $C_8^1{=}8$）→ 32 专家（FFN 2048，激活 4，$C_{32}^4{=}35{,}960$）→ 64 专家（FFN 1024，激活 8，$C_{64}^8{=}4.4\times10^9$）。指标：训练/验证 loss + HellaSwag/MMLU。</li>
+<li><b>共享专家消融（Fig 6）：</b> 两种配置激活/总参数与 FLOPs 完全相同——"32 路由专家激活 4（无共享）" vs "31 路由 + 1 始终激活共享、激活 3 路由（仍激活 4 个）"。组合数 $C_{32}^4{=}35{,}960$ vs $C_{31}^3{=}4{,}495$。</li>
+</ul>
+
+<h4>关键结果</h4>
+<ul>
+<li><b>粒度：</b> 8→32 专家在 HellaSwag/MMLU <b>提升约 10%</b>；但 32→64 仅再 +1~2%（明显递减）。考虑到 5T tokens 远超 compute-optimal，最终选 64 专家。</li>
+<li><b>共享专家：</b> "1 共享 + 1 路由" 比 "2 路由" <b>略差</b>。OLMoE 的解释直击要害：把一个路由专家变共享，<b>专家组合数从 35,960 锐减到 4,495，损失约 90% 的组合灵活性</b>——这与 DeepSeekMoE 宣称的共享专家收益<b>直接矛盾</b>。</li>
+<li><b>结论：</b> <b>1B 激活规模下不用共享专家。</b> 这也预示了 Qwen3 后来取消共享专家的决策。</li>
+</ul>
+<div class="card"><b>为什么 OLMoE 和 DeepSeekMoE 结论相反？</b> 两者都"等参数等算力"，但：(1) 规模不同（OLMoE 在 1B 激活、DeepSeekMoE 在 0.3B 激活）；(2) OLMoE 的共享消融只是<b>单点比较</b>（1+1 vs 2 激活），DeepSeekMoE 扫了 1/2/4 但差异在噪声内。两者其实都承认"共享专家的收益微弱且规模相关"，分歧在于<b>这点微弱收益值不值得牺牲组合灵活性</b>。</div>
+
+<!-- On DeepSeekMoE statistical -->
+<div class="paper-head" id="p-statben">
+<div class="pt">On DeepSeekMoE: Statistical Benefits of Shared Experts and Normalized Sigmoid Gating</div>
+<div class="pm">UT Austin / FPT AI / A*STAR · 2025 · arXiv <a href="https://arxiv.org/abs/2505.10860">2505.10860</a> · <b>理论视角</b></div>
+</div>
+<p>这篇从<b>统计估计理论</b>解释"为什么共享专家有用"，但<b>没有扫描共享数量</b>。它在合成数据 + 语言模型（66 专家：top-6 路由 + 2 共享）+ 视觉语言（top-3 路由 + 1 共享）三类<b>固定配置</b>上验证理论。</p>
+<h4>核心结论</h4>
+<ul>
+<li><b>共享专家更省样本：</b> 共享专家的估计收敛率恒为 $O_P(n^{-1/4})$，<u>不受过参数化影响</u>；而 DeepSeek-V2 的 softmax 门控下，路由专家收敛率可能慢得多（取决于多项式系统可解性）。</li>
+<li><b>归一化 sigmoid 门控（V3）</b> 让路由专家收敛率提升到最快 $O_P(n^{-1/2})$，且不再依赖多项式可解性——这为 V3 从 softmax 改 sigmoid 提供了理论依据。</li>
+<li><b>实测增益温和：</b> DeepSeek 变体用约 70–80% 的训练步数即可达到 Vanilla SMoE 的最终性能（收敛更快），但绝对 PPL 差异仅约 0.2。</li>
+</ul>
+<div class="card warn"><b>关键自白。</b> 论文在 Discussion 中<b>明确把"给定算力下最优共享专家数量"列为未解开放问题</b>，建议未来做 scaling-law 研究。也就是说：理论支持"至少放 1 个共享专家"，但<b>放几个最优，至今无人系统回答</b>。</div>
+
+<!-- ============ DIMENSION C ============ -->
+<h2 id="B">维度 C · 粒度 Granularity</h2>
+
+<div class="paper-head" id="p-gran">
+<div class="pt">★ Scaling Laws for Fine-Grained Mixture of Experts</div>
+<div class="pm">University of Warsaw / IDEAS NCBR · 2024 · arXiv <a href="https://arxiv.org/abs/2402.07871">2402.07871</a> · <b>粒度 scaling law 的奠基工作</b></div>
+</div>
+<p>本文定义<b>粒度 $G = d_\text{ff} / d_\text{expert}$</b>——在<u>固定激活参数</u>下把 FFN 切成多少份小专家。$G{=}1$ 即"专家=完整 FFN"（传统做法）；$G{>}1$ 时每个专家是 FFN 的 $1/G$，每 token 路由到 $G$ 个。它与<b>扩展率 $E$=总参/激活参</b>配对，专家总数 $N_\text{expert}=G\cdot E$。无共享专家、无 dense 层（全 MoE）。</p>
+
+<h4>实验设计</h4>
+<ul>
+<li><b>固定：</b> 扩展率 $E{=}64$（每 token 激活参数恒定），FLOP 经 scaling-law 对齐。</li>
+<li><b>扫描：</b> 粒度 $G\in\{1,2,4,8,16\}$（极端到 64）、模型 129M~3.7B、tokens 16B~130B。附录再用 $E{=}16$ 复验。共 >100 次训练。</li>
+<li><b>拟合：</b> 三元 scaling law $L(N,D,G)$，Huber loss（$\delta{=}0.1$）+ BFGS，RMSE 0.015。FLOP 计入路由开销。</li>
+</ul>
+
+<div class="figure-box">
+  <img src="images/fig_gran_fit.png" alt="Fine-grained MoE scaling law fit">
+  <div class="caption"><b>Figure（scaling 拟合）.</b> 多条曲线为不同粒度 $G$（颜色区分）下，最终 LM loss（纵轴）随激活参数/算力（横轴，对数）的下降。可见在每一个算力点上，<b>更高的 $G$ 曲线整体更低</b>，且 $G{=}1$（最浅色）始终位于上方——直接证明"专家=整 FFN"的传统设置几乎处处次优。曲线随算力外推到大模型区间。本图支撑论文中心主张：细粒度专家是 free lunch。</div>
+</div>
+<div class="figure-box">
+  <img src="images/fig_gran_flopsave.png" alt="FLOPs saving of fine-grained MoE vs dense" style="max-width:520px">
+  <div class="caption"><b>Figure（算力节省）.</b> 横轴算力预算（FLOPs，对数），纵轴为达到同等 loss 时<b>最优 MoE 相对 dense 的算力节省倍数</b>。曲线随预算单调上升：在 $10^{20}$ FLOPs 处，compute-optimal MoE ≈ 20× 算力的 dense 模型；越往大预算，节省倍数升至 40× 以上。本图支撑"只要 $N,D,G$ 都取最优，MoE 永远优于 dense"，反驳了 Clark et al. 2022 的悲观结论。</div>
+</div>
+
+<h4>关键结果</h4>
+<ul>
+<li><b>高粒度单调降 loss：</b> $L_{N,D}(G)=g/G^{\gamma}+h$，拟合 $\gamma\approx0.58$。</li>
+<li><b>$G{=}1$ 几乎处处次优</b>——论文的核心论断。</li>
+<li><b>最优 $G$ 随预算增长：</b> 100M 激活 → $G{=}8$；1–3B → $G{=}16$；7–70B → $G{=}32$；300B–1T → $G{=}64$。</li>
+<li><b>MoE 永远胜 dense（当 $N,D,G$ 全取最优）。</b></li>
+</ul>
+<div class="card warn"><b>局限。</b> 扩展率 $E$ 被固定（主 64、附录 16）而非联合优化——因为更大 $E$ 降 loss 但吃显存，纯 FLOP 推荐做不到。<b>不研究共享专家与 dense 层</b>。极端 $G{=}64$ 在小 $d_\text{model}$ 下因路由参数超过专家激活参数而退化。最大实训仅 3.7B，大预算结论是外推。</div>
+
+<!-- ============ DIMENSION D ============ -->
+<h2 id="C">维度 D · 激活 / 总参数稀疏度</h2>
+<p>这是直接回答你"激活参数占多少合适"的维度，也是三篇重量级 scaling-law 论文的战场。</p>
+
+<!-- Apple -->
+<div class="paper-head" id="p-apple">
+<div class="pt">★ Parameters vs FLOPs: Scaling Laws for Optimal Sparsity for MoE Language Models</div>
+<div class="pm">Apple &amp; MIT · 2025 · arXiv <a href="https://arxiv.org/abs/2501.12370">2501.12370</a> · <b>激活/总参数最优稀疏度的最权威工作</b></div>
+</div>
+<p>本文把<b>稀疏度 $S=(E-K)/E$</b>（非激活专家占比，等价于激活/总参数比）当作中心轴，用 IsoFLOP 方法找最优 $S$。$S{=}0$ 即 dense；$S\to1$ 即极稀疏。Dropless MoE（Megablocks），GLU FFN，QK-norm。</p>
+
+<h4>实验设计（大规模 IsoFLOP）</h4>
+<ul>
+<li><b>扫描：</b> 稀疏度 $S\in\{0,25,50,75,90,95,98\}\%$（7 档含 dense）、总参数 $N$、激活参数 $N_a$——通过调整总专家数 $E$ 与激活数 $K$。</li>
+<li><b>固定/系统扫：</b> 5 个 IsoFLOP 算力预算 $\{3{\times}10^{19},\,6{\times}10^{19},\,10^{20},\,3{\times}10^{20},\,10^{21}\}$；每个 $(C,N,S)$ 调整数据量 $D$ 使 $C\approx 6 N_a D$ 恒定。</li>
+<li><b>拟合：</b> 每个预算拟合一张 $L(N,S)$ 二次曲面（交叉验证选 degree，held-out MSE 0.0001），再切片求最优 $S^*$；并拟合参数化 scaling law（含 $1/(1-S)^\lambda$ 项），在 $S{=}0.98$ 留出点验证。</li>
+</ul>
+
+<div class="figure-box">
+  <img src="images/fig_apple_surface_total.png" alt="IsoFLOP surface over total params" style="max-width:560px">
+  <div class="caption"><b>Figure 1a（总参数视角）.</b> 单个算力预算下的 loss 等高面，横轴总参数 $N$（对数），不同曲线对应不同稀疏度 $S$。沿稀疏度方向，loss 单调下降——<b>越稀疏的模型在等算力下达到更低 loss</b>，且最优点对应<b>更大的总参数 $N$</b>。本图支撑"compute-optimal 的稀疏模型应当更大但激活更少"。</div>
+</div>
+<div class="figure-box">
+  <img src="images/fig_apple_surface_active.png" alt="IsoFLOP surface over active params" style="max-width:560px">
+  <div class="caption"><b>Figure 1b（激活参数视角）.</b> 同一组实验改用激活参数 $N_a$ 为横轴。与上图相反，最优配置对应<b>更小的激活参数 $N_a$</b>（即更低的 FLOPs/token、更便宜的推理）。两图并置传达核心张力：<b>$N^*$ 随稀疏上升、$N_a^*$ 随稀疏下降</b>——稀疏让你"用更大的参数库、更小的激活成本"。</div>
+</div>
+<div class="figure-box">
+  <img src="images/fig_apple_optsparsity.png" alt="Optimal sparsity vs N and C" style="max-width:480px">
+  <div class="caption"><b>Figure（最优稀疏度）.</b> 横轴总参数 $N$（对数），纵轴最优稀疏度 $S^*$；不同曲线对应不同训练预算 $C$。两条规律一目了然：<b>$S^*$ 随 $N$ 增大而升高（趋近 1.0）</b>，随 $C$ 增大而降低。本图是论文的操作性结论——给定你的模型规模与算力，能读出该用多稀疏。</div>
+</div>
+
+<h4>关键结果</h4>
+<ul>
+<li><b>总参数不受限时：越稀疏越好。</b> 每张 IsoFLOP 曲面沿稀疏轴 loss 单调降，最优 $S^*$ 趋近 1.0，在 3e19–1e21 全程<b>无递减拐点</b>。</li>
+<li><b>总参数受限时：</b> $L(S)$ 呈抛物线，存在内部最优；$S^*$ 随 $N$ 升、随 $C$ 降。</li>
+<li><b>Dense ($S{=}0$) 在预训练 loss 上始终被压制。</b></li>
+<li><b>下游：</b> 多数任务的下游误差仅由预训练 loss 决定、与稀疏度无关。<b>唯一例外</b>：阅读理解（SQuAD/CoQA）——等困惑度下 dense 迁移更好，但可用 CoT 补回（且 MoE 从 CoT 获益更多）。</li>
+</ul>
+<div class="card warn"><b>局限。</b> 成本只按<b>理论 FLOPs</b> 计，未建模高稀疏 MoE 的<b>显存与 all-to-all 通信开销</b>（这会侵蚀"越稀疏越好"）。稀疏定义 $(E{-}K)/E$ 忽略了 attention 等始终激活的参数，并非精确激活比。模型为 compute-optimal（非过训），绝对数字不能直接对标部署级 LLM。</div>
+
+<!-- Unified Scaling -->
+<div class="paper-head" id="p-unified">
+<div class="pt">★ Unified Scaling Laws for Routed Language Models</div>
+<div class="pm">DeepMind · ICML 2022 · arXiv <a href="https://arxiv.org/abs/2202.01169">2202.01169</a> · <b>专家数的"有效参数"与天花板</b></div>
+</div>
+<p>最早把"参数量"与"算力"作为<b>两个独立轴</b>的工作。用 top-1 路由（$K{=}1$），让激活算力 $F\approx2N$ 恒定，而总参数 $P$ 随专家数 $E$ 线性增长——于是 $E$ 直接控制总:激活比。</p>
+<h4>实验设计</h4>
+<ul>
+<li><b>扫描：</b> 专家数 $E\in\{2,4,8,16,32,64,128,256,512\}$ × dense 基座 $N$(15M~1.3B) × 3 种路由法 = 约 168 个模型。</li>
+<li><b>固定：</b> 全部 130B tokens、$K{=}1$、同架构族。</li>
+<li><b>拟合：</b> 六参数双线性律 $\log L(N,E)$，并导出 <b>Effective Parameter Count</b>，把路由模型映射到等效 dense 规模。</li>
+</ul>
+<h4>关键结果</h4>
+<ul>
+<li><b>加专家≈更大 dense，但强烈边际递减且有硬上限。</b> 交叉项 $c{>}0$ 使路由收益随基座 $N$ 增大而缩水。</li>
+<li><b>有效参数封顶：</b> 路由在 s-base 法约 <b>937B</b> 等效参数后不再优于 dense；最大有用专家数约 <b>314（s-base）</b>。</li>
+<li><b>实用建议：</b> $E\in\{64,128\}$ 是性价比甜点；模型激活基座 $\le$ 1.3B 时都值得用路由。</li>
+</ul>
+<div class="card warn"><b>局限。</b> 固定单一 130B token 预算（非 Chinchilla 最优），最优 $E$ 与上限会随 token 增多而漂移。仅 $K{=}1$，不研究 top-k、粒度 $G$、共享专家。大 $N$ 区间是外推。</div>
+
+<!-- Google sparsely-connected -->
+<div class="paper-head" id="p-google">
+<div class="pt">★ Scaling Laws for Sparsely-Connected Foundation Models</div>
+<div class="pm">Google DeepMind / IST Austria · 2023 · arXiv <a href="https://arxiv.org/abs/2309.08520">2309.08520</a> · <b>权重稀疏（非 MoE），可类比</b></div>
+</div>
+<p>严格说研究的是<b>权重剪枝稀疏</b>（无专家、无路由），但"激活/总"框架可类比 MoE。ViT(JFT-4B) + T5(C4) 两族，扫描如何让<b>最优稀疏度</b>随模型与数据变化。</p>
+<h4>实验设计</h4>
+<ul>
+<li><b>扫描：</b> 稀疏度 $S\in\{0,0.5,0.75,0.875\}$ × 模型规模（7 ViT / 4 T5）× 数据量。共 112 ViT + 48 T5 次训练。</li>
+<li><b>固定：</b> 每次比较固定<b>非零参数量 $N$</b> 与训练成本，找最低 loss 的 $S$。</li>
+<li><b>拟合：</b> 联合幂律 $L(S,N,D)$，分"dense FLOP"与"sparse FLOP"两种成本口径。</li>
+</ul>
+
+<div class="figure-box">
+  <img src="images/fig_google_contour.png" alt="Optimal sparsity contour ViT" style="max-width:560px">
+  <div class="caption"><b>Figure（最优稀疏等高线，ViT/JFT）.</b> 横轴非零参数 $N$、纵轴训练数据 $D$（均对数），等高线为不同稀疏度成为"最优"的区域边界；虚线为 Chinchilla compute-optimal 线。关键视觉：<b>等稀疏线与 Chinchilla 线平行</b>——一旦训练时长超过 dense 的 compute-optimal 点，任何 $S{>}0$ 都会变成最优。本图支撑"最优稀疏度随训练数据增加而上升"。</div>
+</div>
+
+<h4>关键结果</h4>
+<ul>
+<li><b>最优稀疏随数据上升：</b> 固定非零参数，训练越久（数据越多），最佳稀疏度越高。</li>
+<li><b>75% 稀疏是稳健甜点：</b> 给出约 <b>2.15× 等效 dense 参数</b>收益，在 ViT 与 T5 上惊人一致（$S{=}0.5$→1.6×；$S{=}0.75$→2.16×；$S{=}0.875$→2.63×）。</li>
+<li><b>剪枝预训练 checkpoint 比从头训快 >4×。</b></li>
+</ul>
+<div class="card warn"><b>局限。</b> 研究的是<b>权重稀疏</b>而非 MoE 专家稀疏，只能类比迁移（无路由/负载均衡/粒度效应）。非结构化稀疏的 FLOP 节省依赖硬件支持（现实多用 n:m 结构化）。拟合模型 ≤85M，仅一个 2.3B 外推点。只看预训练 loss。</div>
+
+<!-- ============ DIMENSION B ============ -->
+<h2 id="D">维度 B · Dense 层 / Dense-MoE 混合架构</h2>
+
+<div class="paper-head" id="p-jamba">
+<div class="pt">Jamba: A Hybrid Transformer-Mamba Language Model</div>
+<div class="pm">AI21 Labs · 2024 · arXiv <a href="https://arxiv.org/abs/2403.19887">2403.19887</a></div>
+</div>
+<p>Jamba（12B 激活 / 52B 总）混合 Transformer-Mamba + MoE。<b>每隔一层（$e{=}2$）才用 MoE</b>，其余 MLP 层保持 dense；16 专家 top-2，无共享。这是"Dense 层与 MoE 层如何配比"维度的代表。</p>
+<h4>实验设计——但没扫 Dense/MoE 比例</h4>
+<ul>
+<li>关于 dense-vs-MoE 比例（$e,n,K$）<b>没有受控扫描</b>。唯一 MoE 相关对照是<b>二元开关</b>："Jamba 无 MoE" vs "Jamba+MoE"（都 7B/50B tokens，MoE 固定 $n{=}16,K{=}2,e{=}2$）。</li>
+<li>专家配置是为<b>塞进单张 80GB GPU</b>（int8）+ 借鉴前作而定，"preliminary experiments" 无数字。</li>
+<li>真正被扫的是<b>正交的 attention:Mamba 比例</b>（1:3 vs 1:7，Table 4）——结果两者几乎打平，故选 1:7 纯为省算力。</li>
+</ul>
+<h4>关键结果</h4>
+<ul>
+<li><b>MoE 开关（Table 7）：</b> 加 MoE 全面提升——OLLM 15.4→18.9、HellaSwag 36.6→38.1、WinoGrande 62.5→66.0。但<b>只证明 MoE 有用，未证明何种比例最优</b>。</li>
+<li>net：dense/MoE 比例由<b>显存预算 + 前作启发式</b>定，而非质量最优扫描。</li>
+</ul>
+<div class="card"><b>关于"前置 Dense 层"的工业共识。</b> 虽无系统消融，DeepSeek-V2 把<b>首层</b>、DeepSeek-V3 把<b>前 3 层</b>设为 dense FFN（占比约 1.7%/4.9%），普遍理由是<u>浅层路由不稳定</u>。这是被多个报告采用、但<b>无人公开做过对照实验</b>的设计选择。</div>
+
+<!-- ============ INDUSTRY REPORTS ============ -->
+<h2 id="reports">工业技术报告：固定值数据点（不做消融）</h2>
+<p>以下报告<b>不扫描比例</b>，但提供了真实大规模的配置，可视作工业界的"经验共识"。把它们排在一起，能看出清晰的时间趋势。</p>
+<table>
+<thead><tr><th>模型</th><th>共享:路由(总数)</th><th>激活专家</th><th>激活/总参数</th><th>Dense 层</th><th>粒度</th></tr></thead>
+<tbody>
+<tr><td>Mixtral 8×7B</td><td>0 : 8</td><td>top-2</td><td>13B/47B ≈ <b>28%</b></td><td>0</td><td>G=1（粗）</td></tr>
+<tr><td>Qwen2-57B-A14B</td><td>8 : 64</td><td>8 共享+8 路由</td><td>14B/57B ≈ 24.6%</td><td>0</td><td>细</td></tr>
+<tr><td>Jamba</td><td>0 : 16</td><td>top-2（隔层）</td><td>12B/52B ≈ 23%</td><td>半数 MLP</td><td>G=1</td></tr>
+<tr><td>Skywork-MoE</td><td>0 : 16</td><td>top-2</td><td>~22B/146B ≈ 15%</td><td>—</td><td>G=1（upcycle）</td></tr>
+<tr><td>Hunyuan-Large</td><td>1 : 16</td><td>1+1</td><td>52B/389B = 13.4%</td><td>—</td><td>细</td></tr>
+<tr><td>MiniMax-01</td><td>(32 专家)</td><td>—</td><td>45.9B/456B ≈ 10%</td><td>—</td><td>—</td></tr>
+<tr><td>Qwen3-235B-A22B</td><td><b>0 : 128</b></td><td>top-8</td><td>22B/235B ≈ 9.4%</td><td>0</td><td>细</td></tr>
+<tr><td>DeepSeek-V2</td><td>2 : 160</td><td>2+6</td><td>21B/236B = 8.9%</td><td>1/60</td><td>细 dim1536</td></tr>
+<tr><td><b>DeepSeek-V3</b></td><td><b>1 : 256</b></td><td><b>1+8 = 1:8</b></td><td>37B/671B = <b>5.5%</b></td><td><b>前 3 层</b></td><td>细 dim2048</td></tr>
+<tr><td><b>Kimi-K2</b></td><td><b>1 : 384</b></td><td>1+8 = 1:8</td><td>32B/1T = <b>3.2%</b></td><td>—</td><td>细</td></tr>
+</tbody>
+</table>
+
+<h4>三条可观察趋势</h4>
+<ol>
+<li><b>激活率逐年走低：</b> Mixtral 28% → V2 8.9% → V3 5.5% → Kimi-K2 <b>3.2%</b>。与 Apple "越稀疏越好"的 scaling law 高度吻合。</li>
+<li><b>共享专家的"分化"：</b> DeepSeek 系坚持 1 个共享；<b>Qwen3 与 OLMoE 取消共享</b>。这正是当前最大开放争议。</li>
+<li><b>总数比例已是 1:64~1:256，不再是 1:6/1:8：</b> 现代细粒度 MoE 把"专家个数"做大，"激活口径"才停在 1:8。</li>
+</ol>
+
+<!-- ============ SYNTHESIS ============ -->
+<h2 id="synthesis">横向综合与结论</h2>
+
+<h3>1. 直接回答你的 "1:6 / 1:8"</h3>
+<ul>
+<li><b>若指激活口径（1 共享 : N 激活路由）：</b> 真实且主流。DeepSeek-V3 = 1:8、Kimi-K2 = 1:8、DeepSeekMoE-16B = 1:3。<b>你记的 1:6~1:8 完全对得上 DeepSeek 系。</b></li>
+<li><b>若指总数口径：</b> 现代是 1:64~1:256，不是 1:6/1:8（那是 Mixtral 式粗粒度的旧印象）。</li>
+<li><b>⚠️ 没有任何论文系统扫过"共享:路由 = 1:6 vs 1:8 vs 1:10"并给出最优值。</b> 最接近的是 DeepSeekMoE 的 1/2/4 共享消融（结论：不敏感、在噪声内）和 2505.10860 的理论分析（明确称最优数量为开放问题）。</li>
+</ul>
+
+<h3>2. 各维度目前的"最优"答案</h3>
+<table>
+<thead><tr><th style="width:16%">维度</th><th>当前最佳证据与建议</th><th style="width:22%">主要证据来源</th></tr></thead>
+<tbody>
+<tr><td><b>A 共享:路由</b></td><td>争议未决。小规模(≤1B 激活)证据倾向<b>不用共享或仅 1 个</b>；DeepSeek 在大规模坚持 1 个共享。务必"等激活数"做消融。</td><td>DeepSeekMoE / OLMoE / 2505.10860</td></tr>
+<tr><td><b>C 粒度 $G$</b></td><td>用 $G{>}1$（细粒度）。最优 $G$ 随规模：100M→8，1–3B→16，7–70B→32，>300B→64。</td><td>2402.07871 / OLMoE</td></tr>
+<tr><td><b>D 激活/总稀疏</b></td><td>总参不限→越稀疏越好(S*→1)；总参受限→存在内部最优，随模型增大而升高。工业落点 5%–10%，前沿已到 3%。</td><td>Apple 2501.12370 / DeepMind 2202.01169 / Google 2309.08520</td></tr>
+<tr><td><b>专家数 $E$</b></td><td>甜点 64–128；约 300+ 后有效参数封顶（固定 token 预算下）。</td><td>2202.01169</td></tr>
+<tr><td><b>B Dense 层</b></td><td>无系统消融。工业惯例：前 1–3 层保持 dense（浅层路由不稳）。</td><td>DeepSeek-V2/V3（采用，未消融）</td></tr>
+</tbody>
+</table>
+
+<h3>3. 文献的三个空白（也是你若做实验的机会）</h3>
+<div class="highlight">
+<ol style="margin-bottom:0">
+<li><b>共享专家数量的 scaling law 缺失。</b> 没人在多个规模、固定算力下系统扫描共享专家数并拟合 $L(N,D,K_s)$。2505.10860 亲口承认这是开放问题。</li>
+<li><b>Dense 层占比无对照实验。</b> "前 k 层 dense" 被广泛采用却从未被 ablate——k 取 0/1/3/6 对 loss 的影响是空白。</li>
+<li><b>四维联合优化缺失。</b> 现有论文各扫一维（A 或 C 或 D），把<b>共享比例 × 粒度 × 稀疏度</b>联合优化的工作几乎没有（Joint MoE Scaling Laws 2502.05172 是少数尝试，但不含共享专家）。</li>
+</ol>
+</div>
+
+<h3>4. 给实践者的可操作配方</h3>
+<div class="card">
+<p>若要训一个新的 MoE 并想"少踩坑"，综合证据的保守配置：</p>
+<ul>
+<li><b>激活率</b> 取 5%–10%（对标 V3/MiniMax）；算力越大可越稀疏。</li>
+<li><b>粒度</b> 按目标激活规模选 $G$：~1B 激活用 16–32 个细粒度专家，~10B+ 用 64+。</li>
+<li><b>共享专家</b> 放 0 或 1 个——若放，务必用"等激活数"消融验证它在<u>你的</u>规模上确实有收益，别盲信任一派。</li>
+<li><b>前 1–3 层</b> 保持 dense FFN。</li>
+<li><b>验证方法</b>：固定激活参数 + 固定 tokens，多算力档位 IsoFLOP，拟合 $L(N,D,\cdot)$ 再外推——而不是单规模两两比。</li>
+</ul>
+</div>
+
+<!-- ============ SOURCES ============ -->
+<h2 id="sources">论文出处</h2>
+<h4>做了受控比例消融的论文（★ 核心）</h4>
+<ul>
+<li>★ DeepSeekMoE — arXiv <a href="https://arxiv.org/abs/2401.06066">2401.06066</a>（维度 A，唯一扫共享数量）</li>
+<li>★ Scaling Laws for Fine-Grained MoE — arXiv <a href="https://arxiv.org/abs/2402.07871">2402.07871</a>（维度 C 粒度）</li>
+<li>★ Parameters vs FLOPs (Apple) — arXiv <a href="https://arxiv.org/abs/2501.12370">2501.12370</a>（维度 D 稀疏度）</li>
+<li>★ Unified Scaling Laws for Routed LMs (DeepMind) — arXiv <a href="https://arxiv.org/abs/2202.01169">2202.01169</a>（维度 D 专家数）</li>
+<li>★ OLMoE (Ai2) — arXiv <a href="https://arxiv.org/abs/2409.02060">2409.02060</a>（维度 A+C）</li>
+<li>★ Scaling Laws for Sparsely-Connected (Google) — arXiv <a href="https://arxiv.org/abs/2309.08520">2309.08520</a>（权重稀疏，可类比）</li>
+</ul>
+<h4>理论 / 联合 scaling law</h4>
+<ul>
+<li>On DeepSeekMoE: Statistical Benefits of Shared Experts — arXiv <a href="https://arxiv.org/abs/2505.10860">2505.10860</a></li>
+<li>Joint MoE Scaling Laws — arXiv <a href="https://arxiv.org/abs/2502.05172">2502.05172</a></li>
+<li>Holistic Scaling Laws for Optimal MoE — arXiv <a href="https://arxiv.org/abs/2603.21862">2603.21862</a></li>
+<li>Optimal Sparsity for Compositional Generalization — arXiv <a href="https://arxiv.org/abs/2410.13964">2410.13964</a></li>
+</ul>
+<h4>工业技术报告（采用固定值）</h4>
+<ul>
+<li>DeepSeek-V2 — <a href="https://arxiv.org/abs/2405.04434">2405.04434</a> · DeepSeek-V3 — <a href="https://arxiv.org/abs/2412.19437">2412.19437</a></li>
+<li>Qwen2 — <a href="https://arxiv.org/abs/2407.10671">2407.10671</a> · Qwen3 — <a href="https://arxiv.org/abs/2505.09388">2505.09388</a></li>
+<li>Hunyuan-Large — <a href="https://arxiv.org/abs/2411.02265">2411.02265</a> · Skywork-MoE — <a href="https://arxiv.org/abs/2406.06563">2406.06563</a></li>
+<li>MiniMax-01 — <a href="https://arxiv.org/abs/2501.08313">2501.08313</a> · Kimi-K2 — <a href="https://arxiv.org/abs/2507.20534">2507.20534</a></li>
+<li>Jamba — <a href="https://arxiv.org/abs/2403.19887">2403.19887</a> · Mixtral — <a href="https://arxiv.org/abs/2401.04088">2401.04088</a></li>
+</ul>
+
+<div class="card" style="margin-top:30px;font-size:12px;color:#666">
+<b>方法说明。</b> 本综述由多智能体检索工作流生成：5 路并行检索（共享比例 / 粒度 / Dense 层 / 稀疏度 / 2025 报告）→ 去重 24 篇候选 → 并行深读 12 篇全文 → 综合。★ 论文的英雄图均从 arXiv LaTeX 源码 (e-print) 提取原始 PDF 图并转 PNG，已逐一核对 caption 与 Figure 编号对应。报告中所有比例数字来自论文原文，理论结论已标注其规模与口径限制——尤其请注意 DeepSeekMoE 共享比例消融的"噪声内"局限。</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek-V3 Technical Report 深度解读</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:240px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px}.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:240px;max-width:880px;padding:48px 44px 120px} h1{font-size:27px;line-height:1.35;margin:0 0 6px;color:#000} .subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+h2{font-size:20px;color:#000;margin:32px 0 12px;padding-bottom:6px;border-bottom:2px solid #000} h3{font-size:16px;color:#000;margin:24px 0 8px} p{margin:0 0 12px;text-align:justify}
+.card,.highlight{border:1px solid var(--line);padding:18px;margin:16px 0;background:#fff}.highlight{background:#f7f7f2;border-left:3px solid #000}
+.figure-box{border:1px solid #ccc;padding:14px;text-align:center;margin:20px auto;background:#fff}.figure-box img{max-width:100%;height:auto}.caption{font-size:12px;color:#444;margin-top:8px;line-height:1.65;font-style:italic;text-align:left}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px} th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left} td{border-bottom:1px solid #ddd;padding:7px 9px}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0}.metric-card{border:1px solid #ccc;text-align:center;padding:14px}.metric-card .value{font-size:24px;font-weight:700;color:#000}.metric-card .label{font-size:11px;color:#666;margin-top:4px}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto;font-size:14px}.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px}
+ul,ol{margin:8px 0 12px 22px}li{margin:5px 0}
+code{background:#f3f3f3;padding:1px 5px;border-radius:2px;font-size:13px}
+@media(max-width:900px){.toc-sidebar{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line)}.main{margin-left:0;padding:24px 20px 80px}}
+</style>
+</head>
+<body>
+
+<aside class="toc-sidebar">
+<h2>目录</h2>
+<a href="#abstract">摘要 / 核心贡献</a>
+<a href="#bg">1 背景与目标</a>
+<a href="#arch">2 模型架构</a>
+<a class="sub" href="#mla">2.1 MLA</a>
+<a class="sub" href="#moe">2.2 DeepSeekMoE + 无辅助损失负载均衡</a>
+<a class="sub" href="#mtp">2.3 Multi-Token Prediction</a>
+<a href="#infra">3 训练基础设施</a>
+<a class="sub" href="#dualpipe">3.1 DualPipe</a>
+<a class="sub" href="#alltoall">3.2 跨节点 All-to-All</a>
+<a class="sub" href="#fp8">3.3 FP8 训练</a>
+<a class="sub" href="#deploy">3.4 推理部署</a>
+<a href="#pretrain">4 预训练</a>
+<a class="sub" href="#data">4.1 数据</a>
+<a class="sub" href="#hp">4.2 超参与扩展</a>
+<a class="sub" href="#niah">4.3 长上下文 NIAH</a>
+<a class="sub" href="#ablation">4.4 消融</a>
+<a href="#post">5 后训练</a>
+<a class="sub" href="#sft">5.1 SFT 与 R1 蒸馏</a>
+<a class="sub" href="#rl">5.2 强化学习</a>
+<a class="sub" href="#evalchat">5.3 Chat 评估</a>
+<a href="#analysis">6 深度分析</a>
+<a href="#limit">7 局限性与展望</a>
+<a href="#takeaways">8 核心总结</a>
+<a href="#refs">9 资源链接</a>
+</aside>
+
+<main class="main">
+
+<h1>DeepSeek-V3 Technical Report</h1>
+<div class="subtitle">DeepSeek-AI · arXiv:2412.19437 · 2024/12 (v2: 2025/02) · 中文深度解读</div>
+
+<div class="highlight">
+<b>一句话概括.</b> DeepSeek-V3 是一个 <b>671B 总参数、37B 激活</b> 的 MoE 大模型，在 14.8T tokens 上完成预训练，<b>仅花 2.788M H800 GPU 小时（约 5.576M USD）</b>，性能媲美 GPT-4o / Claude-3.5-Sonnet。三个核心技术：(1) 沿用 V2 的 <b>MLA</b> 与 <b>DeepSeekMoE</b>，并首创 <b>无辅助损失（aux-loss-free）</b> 负载均衡，避免辅助损失对模型质量的拉低；(2) 引入 <b>Multi-Token Prediction (MTP)</b> 训练目标，密集化训练信号，可顺带做 speculative decoding 加速 1.8×；(3) 在系统层面用 <b>DualPipe + 全 FP8 训练</b>，把跨节点专家并行的通信几乎完全 overlap 掉。整训练过程零回滚、零不可恢复 loss spike。
+</div>
+
+<h2 id="abstract">摘要 / 核心贡献</h2>
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">671B</div><div class="label">总参数（37B 激活）</div></div>
+  <div class="metric-card"><div class="value">14.8T</div><div class="label">预训练 token</div></div>
+  <div class="metric-card"><div class="value">2.788M</div><div class="label">H800 GPU 小时</div></div>
+  <div class="metric-card"><div class="value">5.576M USD</div><div class="label">按 2 美元/卡时计</div></div>
+  <div class="metric-card"><div class="value">128K</div><div class="label">上下文窗口</div></div>
+  <div class="metric-card"><div class="value">1.8×</div><div class="label">MTP 解码加速</div></div>
+</div>
+
+<p>论文主张三层创新：</p>
+<ol>
+<li><b>架构</b>：MLA + DeepSeekMoE 沿用 V2，新增 <b>auxiliary-loss-free 负载均衡</b> 与 <b>MTP</b> 训练目标。</li>
+<li><b>工程</b>：第一次在超大规模 MoE 上验证 <b>FP8 全栈训练</b>；自研 <b>DualPipe</b> 减少 pipeline bubble 并 overlap 通信；自研 IB+NVLink 协同的 all-to-all kernel；不用 TP 即可训出 671B。</li>
+<li><b>后训练</b>：从 DeepSeek-R1 系列 <b>蒸馏长 CoT 推理能力</b>到通用 LLM，以及把 V3 自身作为 Generative Reward Model 做 self-rewarding。</li>
+</ol>
+
+<div class="figure-box">
+  <img src="images/fig01_performance.png" alt="benchmark performance">
+  <div class="caption"><b>Figure 1.</b> DeepSeek-V3 与同时代闭源/开源模型在 6 个能力维度的 chat 模式对比。横轴是 6 个 benchmark：MMLU-Pro、GPQA-Diamond、MATH 500、AIME 2024、Codeforces (percentile)、SWE-bench Verified；柱形为 V3、V2.5、Qwen2.5-72B-Inst、Llama-3.1-405B-Inst、GPT-4o-0513、Claude-3.5-Sonnet-1022。可以看到：V3 (75.9 / 59.1 / 90.2 / 39.2 / 51.6 / 42.0) 在 MATH 500 与 AIME 2024 上把 GPT-4o（74.6 / 9.3）和其他开源模型甩开 10–30 分；MMLU-Pro 与 GPQA 略低于 Claude-3.5-Sonnet 但显著高于 GPT-4o；SWE-Verified 落后 Claude (50.8) 但仍领先所有开源。</div>
+</div>
+
+<h2 id="bg">1 背景与目标</h2>
+<p>2024 年开源 LLM（Llama 3.1 / Qwen2.5 / Mistral）在闭源（GPT-4o / Claude-3.5）面前仍有显著差距，差距集中在 <b>知识广度、代码工程、复杂推理</b>。要把开源模型推到接近前沿，作者识别出三件事必须同时做对：(a) 架构本身要可缩放（MoE）且推理便宜（KV cache 小）；(b) 训练效率必须够高，否则 14.8T × 671B 的成本不可承受；(c) 后训练阶段需要把 R1 风格的"长 CoT 推理"经验合理迁移到通用模型而不让响应失控变长。</p>
+
+<h2 id="arch">2 模型架构</h2>
+
+<div class="figure-box">
+  <img src="images/fig02_arch.png" alt="V3 basic architecture">
+  <div class="caption"><b>Figure 2.</b> 基础架构图。<b>左侧</b>是 Transformer Block 的栈式结构（Attention + RMSNorm + FFN + RMSNorm × $L$）。<b>右上</b>放大 FFN：DeepSeekMoE 把 FFN 替换为 1 个 Shared Expert（绿色）+ $N_r$ 个 Routed Expert（蓝色），Router 对 input hidden $\mathbf u_t$ 选 Top-$K_r$ 后归一化得到门控权重。<b>右下</b>放大 Attention：MLA 把 KV 压缩成低秩 latent $\mathbf c_t^{KV}$ 与 query latent $\mathbf c_t^Q$，仅 latent + 解耦的 RoPE key（图中阴影框）需要在推理时 cache，从而把 KV cache 砍到普通 MHA 的几分之一；query/key 各自从 latent 上 up-project + RoPE 拼接后送进 Multi-Head Attention。这张图回答两个问题：MoE 在哪、MLA 怎么把 cache 缩小。</div>
+</div>
+
+<h3 id="mla">2.1 Multi-head Latent Attention (MLA)</h3>
+<p>MLA 的核心是 <b>对 KV 与 Q 都做低秩压缩</b>，再附带一个独立的 RoPE 路径。KV 侧公式如下（query 对称）：</p>
+<div class="formula">
+$$ \mathbf c_t^{KV} = W^{DKV}\mathbf h_t,\qquad \mathbf k_t^C = W^{UK}\mathbf c_t^{KV},\qquad \mathbf k_t^R=\mathrm{RoPE}(W^{KR}\mathbf h_t),\qquad \mathbf k_{t,i}=[\mathbf k_{t,i}^C;\,\mathbf k_t^R]. $$
+</div>
+<p>每项含义：$\mathbf c_t^{KV}\in\mathbb R^{d_c}$ 是 KV 共用的 <b>低秩 latent</b>（$d_c\ll d_h n_h$）；$W^{UK}, W^{UV}$ 把 latent up-project 回多头 KV；$\mathbf k_t^R$ 是一组 <b>专门承载 RoPE 的 decoupled key</b>（不参与压缩）。<b>推理时只需缓存 $\mathbf c_t^{KV}$ 与 $\mathbf k_t^R$</b>，因此 KV cache 远小于普通 MHA，长上下文 decoding 受益最大。Attention 输出按 $\sqrt{d_h+d_h^R}$ 归一：</p>
+<div class="formula">
+$$ \mathbf o_{t,i}=\sum_{j=1}^{t}\mathrm{Softmax}_j\!\left(\frac{\mathbf q_{t,i}^\top\mathbf k_{j,i}}{\sqrt{d_h+d_h^R}}\right)\mathbf v_{j,i}^C,\qquad \mathbf u_t=W^O[\mathbf o_{t,1};\dots;\mathbf o_{t,n_h}]. $$
+</div>
+
+<h3 id="moe">2.2 DeepSeekMoE + Auxiliary-Loss-Free 负载均衡</h3>
+<p>DeepSeekMoE 的特色是 <b>更细粒度专家 + 共享专家隔离</b>。每个 token 的 FFN 输出：</p>
+<div class="formula">
+$$ \mathbf h'_t = \mathbf u_t + \sum_{i=1}^{N_s}\mathrm{FFN}^{(s)}_i(\mathbf u_t) + \sum_{i=1}^{N_r}g_{i,t}\,\mathrm{FFN}^{(r)}_i(\mathbf u_t),\qquad s_{i,t}=\sigma(\mathbf u_t^\top\mathbf e_i). $$
+</div>
+<p>$N_s=1$ 共享专家始终激活，$N_r=256$ routed experts 取 Top-$K_r=8$。亲和度用 sigmoid（V2 是 softmax）+ 选中后归一化得到门控权重。</p>
+
+<p><b>关键创新 — Auxiliary-Loss-Free.</b> 传统做法（Switch / GShard）用一个负载均衡辅助损失 $\mathcal L_{aux}$ 推动 router 均匀路由，但太强会拉低主任务质量。V3 改用一个 <b>路由偏置项</b>：</p>
+<div class="formula">
+$$ g'_{i,t}=\begin{cases}s_{i,t}, & s_{i,t}+b_i\in\mathrm{Top\text{-}}K_r(\{s_{j,t}+b_j\})\\ 0, & \text{otherwise}\end{cases}. $$
+</div>
+<p>注意 $b_i$ <b>只参与路由决策、不参与门控值计算</b>。每个 step 末根据当前 batch 的专家负载，对过载专家把 $b_i$ 减 $\gamma$，欠载专家加 $\gamma$（$\gamma$ = bias update speed，前 14.3T tokens 用 0.001，最后 500B tokens 设为 0）。这样在不引入梯度噪声的前提下用 <b>纯反馈控制</b> 维持均衡。论文还配了一个 $\alpha$ 极小的 sequence-wise 辅助损失只防极端不均衡。</p>
+
+<p><b>Node-Limited Routing.</b> 每个 token 至多送往 $M=4$ 个 node，节点选择基于该节点上专家亲和度之和。这是后面 all-to-all overlap 能成立的前提。<b>No Token Drop.</b> 整个训练 + 推理过程不丢 token，靠负载均衡 + 推理阶段的 redundant expert 部署来保证。</p>
+
+<h3 id="mtp">2.3 Multi-Token Prediction (MTP)</h3>
+
+<div class="figure-box">
+  <img src="images/fig03_mtp.png" alt="MTP architecture">
+  <div class="caption"><b>Figure 3.</b> MTP 实现示意。最左是主模型（Main Model）做 next-token prediction（标准 LM loss $\mathcal L_{Main}$），其后串联 <b>MTP Module 1</b>（next-2 token prediction，loss $\mathcal L^1_{MTP}$）→ <b>MTP Module 2</b>（next-3 token prediction，$\mathcal L^2_{MTP}$）。每个 MTP module 内部：把上一深度的 hidden $\mathbf h_i^{k-1}$（RMSNorm 后）与 token embedding $\mathrm{Emb}(t_{i+k})$（RMSNorm 后）拼接 → 线性投影 $M_k$ → 一个 Transformer Block → 共享的 Output Head。<b>关键</b>：embedding 与 output head 在所有 module 间共享，且保持 <b>完整因果链</b>（与 Gloeckle et al. 的并行 head 不同），让 MTP module 1 的输出参与 module 2 的预测。论文中 $D=1$（即只额外预测下 1 个 token），MTP 损失权重 $\lambda$=0.3 → 0.1。</div>
+</div>
+
+<p>MTP 的训练目标：</p>
+<div class="formula">
+$$ \mathbf h'^k_i = M_k[\mathrm{RMSNorm}(\mathbf h^{k-1}_i);\,\mathrm{RMSNorm}(\mathrm{Emb}(t_{i+k}))], \qquad \mathcal L^k_{MTP}=\mathrm{CE}(P^k_{2+k:T+1},\,t_{2+k:T+1}). $$
+</div>
+<p>整体损失 $\mathcal L_{MTP}=\frac{\lambda}{D}\sum_k \mathcal L^k_{MTP}$ 作为辅助目标加在主 LM loss 上。<b>推理时直接丢掉 MTP module</b>，主模型独立工作；如果想加速，可把 MTP module 复用为 speculative decoding 的草稿模型——论文实测第 2 个 token 的接受率 <b>85–90%</b>，给出 <b>1.8× 端到端 TPS 提升</b>。</p>
+
+<h2 id="infra">3 训练基础设施：算法-框架-硬件协同设计</h2>
+
+<h3 id="dualpipe">3.1 DualPipe：把通信完全 overlap 进计算</h3>
+<p>跨节点专家并行让 communication / computation ratio 接近 1:1，是大 MoE 训练的最大瓶颈。DualPipe 把每个 chunk 拆成 4 份：<code>attention</code> / <code>all-to-all dispatch</code> / <code>MLP</code> / <code>all-to-all combine</code>；backward chunk 进一步拆 <b>backward-for-input</b> 与 <b>backward-for-weights</b>（借鉴 ZeroBubble），再加一个 PP communication 单元。</p>
+
+<div class="figure-box">
+  <img src="images/fig04_overlap.png" alt="overlap strategy" style="max-width:680px">
+  <div class="caption"><b>Figure 4.</b> 一对单独的 forward / backward chunk 内部的 overlap 排布。橙色 = forward 子任务（ATTN(F)、DISPATCH(F)、MLP(F)、COMBINE(F)）；绿色 = backward-for-input；蓝色 = backward-for-weights；紫色 = PP communication；红色竖条 = barrier。<b>核心读法</b>：上一行 Computation 与下一行 Communication 在时间轴上完全错位——当 ATTN(F) 在算时，下方 DISPATCH(B) 在通信；当 MLP(B) 在算时，下方 COMBINE(F) 在通信。<b>结论</b>：all-to-all 与 PP 通信均被计算完全掩盖。</div>
+</div>
+
+<div class="figure-box">
+  <img src="images/fig05_dualpipe.png" alt="dualpipe schedule">
+  <div class="caption"><b>Figure 5.</b> 8 个 PP rank、20 个 micro-batch 的 DualPipe 双向调度。横轴时间、纵轴 Device 0–7。每格颜色对应 Figure 4 的 chunk 类型。<b>关键观察</b>：从两端同时灌入 micro-batch（reverse 方向略掉编号），整张图的"白格"（pipeline bubble）显著少于传统 1F1B；并且大量相邻 forward/backward 格子用粗黑边框框成 <b>overlapped pair</b>——这些 pair 内部一格的计算与另一格的通信在物理时间上叠加。代价：DualPipe 需要保留 2 份模型参数（Table 2），但因 EP size 大、单 rank 上的参数本来就少，并不显著增加显存。</div>
+</div>
+
+<table>
+<tr><th>方法</th><th>Bubble</th><th>参数</th><th>Activation</th></tr>
+<tr><td>1F1B</td><td>$(PP-1)(F+B)$</td><td>$1\times$</td><td>$PP$</td></tr>
+<tr><td>ZB1P</td><td>$(PP-1)(F+B-2W)$</td><td>$1\times$</td><td>$PP$</td></tr>
+<tr><td><b>DualPipe</b></td><td>$(\frac{PP}{2}-1)(F\&B+B-3W)$</td><td>$2\times$</td><td>$PP+1$</td></tr>
+</table>
+
+<h3 id="alltoall">3.2 跨节点 All-to-All：IB+NVLink 拓扑感知 kernel</h3>
+<p>集群内 NVLink 带宽 160 GB/s ≈ IB 50 GB/s 的 3.2×。论文据此设计：每 token 限 4 节点，且 dispatch 走 <b>"先 IB 同 in-node-index → 再 NVLink 同节点内转发到目标专家"</b>，使 IB 流量与 NVLink 转发在硬件上自然 overlap。理论上 token 可 attend 到 4 节点 × 3.2 专家/节点 = 13 个专家而通信成本不变（实际 $K_r=8$）。</p>
+
+<p>实现细节：用 <b>warp specialization</b> 把 20 个 SM 切成 10 个通信通道，分别处理 IB-send / IB→NVLink forward / NVLink-receive 等子任务，warp 数动态调整。dispatch+combine 与计算 stream overlap，PTX 自定义指令 + auto-tune chunk size 减少 L2 cache 干扰。最终 <b>仅 20/132 SM 即可吃满 IB+NVLink 带宽</b>。</p>
+
+<h3 id="fp8">3.3 FP8 训练：在 671B 上首次跑通</h3>
+
+<div class="figure-box">
+  <img src="images/fig06_fp8framework.png" alt="FP8 framework" style="max-width:640px">
+  <div class="caption"><b>Figure 6.</b> Linear 算子的 FP8 混合精度数据流。<b>三个 GEMM 全走 FP8</b>：Fprop（绿框，输入 → 输出）、Dgrad（黄框，权重梯度 → 输入梯度）、Wgrad（紫框，输入 → 权重梯度）。每个 GEMM 的输入输出在 BF16 ↔ FP8 之间用 To FP8 / To BF16 转换块衔接。<b>高精度保留</b>（图中下方 FP32 框）：Master Weight、Optimizer States 全 FP32（实际 AdamW 的一阶/二阶矩用 BF16，见 §3.3.3）。<b>不画在图里但论文明确</b>：embedding、output head、MoE gating、LayerNorm/RMSNorm、attention 算子全部保留 BF16/FP32。这张图回答"FP8 边界画在哪"——答案是计算密集的 GEMM 三件套吃 FP8，其余敏感算子留高精度。</div>
+</div>
+
+<div class="figure-box">
+  <img src="images/fig07_fp8accum.png" alt="FP8 accumulation">
+  <div class="caption"><b>Figure 7.</b> 两个互补技巧。<b>(a) Fine-grained 量化</b>：Input 端按 <b>1 × $N_C$</b> tile（per-token, 每 128 channel）；Weight 端按 <b>$N_C$ × $N_C$</b> block（每 128 输入 × 128 输出 channel）。每个 tile/block 各持自己的 scaling factor，避免单一 outlier 把整张 tensor 的动态范围吃掉。Tensor Core 完成 FP8×FP8 后，CUDA Core 用三色 scaling factor（粉=output、青=input、灰=weight）做对应的 dequant 乘法。<b>(b) 提升累加精度</b>：Hopper FP8 Tensor Core 内部累加只保留 ~14 bit。论文做法是每完成 4 个 WGMMA（即 $N_C=128$ 元素）后，把 partial sum 拷到 CUDA Core 的 FP32 寄存器做满精度累加，再交给 Tensor Core 继续。两个 WGMMA 持续执行：一个做 promotion，另一个仍在算，保持 Tensor Core 利用率。$N_C=128$ 是论文实验出的"显著提升精度但不显著增加开销"的最小间隔。</div>
+</div>
+
+<p>其他 FP8 关键决策：</p>
+<ul>
+<li><b>统一 E4M3</b>（4 bit exponent + 3 bit mantissa）：和主流 hybrid（Fprop E4M3 / Dgrad+Wgrad E5M2）不同，全用 E4M3。代价是动态范围更小，但被 fine-grained tile/block 量化弥补。</li>
+<li><b>Online quantization</b>：每个 1×128 tile / 128×128 block <b>实时算 absmax</b>，不用 delayed quantization 维护历史 max；简化框架且更稳。</li>
+<li><b>低精度通信与存储</b>：MoE up-projection 之前的 dispatch 激活转 FP8（scaling 限为 2 的整数次幂）；attention 之后的 Linear 输入用自定义 <b>E5M6</b> 格式（精度敏感）；优化器一/二阶矩 BF16，master weight 与 grad 仍 FP32。</li>
+</ul>
+
+<p><b>验证</b>：在 V2-Lite / V2 规模上各训 1T token，<b>FP8 vs BF16 相对 loss 差异 &lt; 0.25%</b>，远低于训练随机性。</p>
+
+<h3 id="deploy">3.4 推理部署：prefilling / decoding 分离</h3>
+<table>
+<tr><th>阶段</th><th>最小部署单元</th><th>Attention 并行</th><th>MoE 并行</th><th>冗余专家数</th></tr>
+<tr><td>Prefilling</td><td>4 nodes / 32 GPUs</td><td>TP4 + SP + DP8</td><td>EP32</td><td>32（每 GPU 多托管 1 个）</td></tr>
+<tr><td>Decoding</td><td>40 nodes / 320 GPUs</td><td>TP4 + SP + DP80</td><td>EP320（每 GPU 1 个专家）</td><td>用 64 GPU 专门托管</td></tr>
+</table>
+<p>Decoding 阶段把 shared expert 视作一个"必选 routed expert"，每个 token 实际选 9 个；点对点 IB + IBGDA 直连降延迟；两个 micro-batch 同时 in-flight 让 attention 与 dispatch+MoE+combine 互相 overlap。<b>每 10 分钟根据线上负载统计调整 redundant expert 集合</b>。</p>
+
+<h2 id="pretrain">4 预训练</h2>
+
+<h3 id="data">4.1 数据</h3>
+<p>语料 <b>14.8T</b> token，相比 V2 提高数学/代码占比、扩多语言。document packing + 不做 cross-sample attention mask；Fill-in-Middle (PSM 框架，触发率 0.1)。Tokenizer 用 byte-level BPE，词表 <b>128K</b>；引入合并标点+换行的 token，但同时 <b>训练时随机拆分</b>这些组合 token，避免 few-shot prompt 缺末尾换行时的 boundary bias。</p>
+
+<h3 id="hp">4.2 超参与扩展</h3>
+<table>
+<tr><th>项</th><th>值</th></tr>
+<tr><td>层数 / hidden</td><td>61 / 7168</td></tr>
+<tr><td>MLA: $n_h$ / $d_h$ / $d_c$ / $d'_c$ / $d_h^R$</td><td>128 / 128 / 512 / 1536 / 64</td></tr>
+<tr><td>MoE: $N_s$ / $N_r$ / $K_r$</td><td>1 / 256 / 8（前 3 层仍是 dense FFN）</td></tr>
+<tr><td>每专家 hidden</td><td>2048</td></tr>
+<tr><td>MTP 深度 $D$</td><td>1（即额外预测下 1 个 token）</td></tr>
+<tr><td>Optimizer / 序列长度</td><td>AdamW($\beta_1$=0.9, $\beta_2$=0.95, wd=0.1) / 4K</td></tr>
+<tr><td>学习率</td><td>线性 → 2.2e-4 → 2.2e-5（cosine, 4.3T tokens）→ 7.3e-6 末尾 167B tokens</td></tr>
+<tr><td>Batch size</td><td>3072 → 15360（前 469B token 内逐步增大）</td></tr>
+<tr><td>并行度</td><td>PP16 / EP64（跨 8 节点）/ ZeRO-1 DP，<b>不用 TP</b></td></tr>
+</table>
+
+<h3 id="niah">4.3 长上下文：两阶段 YaRN 到 128K</h3>
+<p>预训练后用 YaRN 做两段扩展：4K → 32K（1000 步，BS 1920）→ 128K（1000 步，BS 480），LR 都用 7.3e-6（与预训练末尾对齐）。YaRN 仅作用于 decoupled key $\mathbf k_t^R$，参数 $s$=40, $\alpha$=1, $\beta$=32, $\sqrt t=0.1\ln s+1$。</p>
+
+<div class="figure-box">
+  <img src="images/fig08_niah.png" alt="NIAH heatmap" style="max-width:720px">
+  <div class="caption"><b>Figure 8.</b> NIAH（"大海捞针"）测试热图。横轴 context 长度 2K → 128K（每 9K 一档），纵轴 needle 在文档中的相对深度 0% → 100%（每 7% 一档）。颜色为模型答出 needle 的得分（最高 10，绿；最低 1，红）。<b>整张图近乎全绿</b>——即在所有深度 × 所有长度组合下 V3 都能稳定取出 needle，验证 128K 内无明显 retrieval 退化。这是 YaRN 两段扩展 + MLA latent KV cache 的综合证据。</div>
+</div>
+
+<h3 id="ablation">4.4 消融：MTP 与无辅助损失策略各值多少</h3>
+
+<p><b>MTP 消融（Table 4）.</b>在 15.7B（1.33T tokens）与 228.7B（540B tokens）两个规模上对比 baseline vs +MTP；推理时丢掉 MTP module，所以推理成本完全相同。</p>
+<table>
+<tr><th>Benchmark</th><th>Small Baseline</th><th>Small +MTP</th><th>Large Baseline</th><th>Large +MTP</th></tr>
+<tr><td>BBH (3-shot)</td><td>39.0</td><td>41.4</td><td>70.0</td><td>70.7</td></tr>
+<tr><td>MMLU (5-shot)</td><td>50.0</td><td>53.3</td><td>67.5</td><td>66.6</td></tr>
+<tr><td>HumanEval</td><td>20.7</td><td>26.8</td><td>44.5</td><td>53.7</td></tr>
+<tr><td>GSM8K (8-shot)</td><td>25.4</td><td>31.4</td><td>72.3</td><td>74.0</td></tr>
+<tr><td>MATH (4-shot)</td><td>10.7</td><td>12.6</td><td>38.6</td><td>39.8</td></tr>
+</table>
+<p>结论：MTP 在大多数基准上稳定加分，<b>HumanEval 上甚至 +6 ~ +9 分</b>，且推理成本零增加。</p>
+
+<p><b>Aux-loss-free 消融（Table 5）.</b> 同样两个规模，对比"纯辅助损失" vs "无辅助损失 + bias 控制"。无辅助损失版在 BBH、TriviaQA、HumanEval、GSM8K、MATH 上都更高，几乎没有 benchmark 反而下降——验证 aux loss 真的在拖性能。</p>
+
+<div class="figure-box">
+  <img src="images/fig09_expert_load.png" alt="expert specialization">
+  <div class="caption"><b>Figure 9.</b> 16B aux-loss-based vs aux-loss-free 模型在 Pile 测试集 3 个领域（Wikipedia(en) / Github / DM-Mathematics）上的专家激活热图。横轴 1–64 是 routed expert ID。上两条横带是 Layer 9，下两条是 Layer 18；每层内上为 aux-loss-based、下为 aux-loss-free。颜色深浅 = relative expert load（0–10）。<b>关键差异</b>：aux-loss-based 两层都呈"均匀浅色"——专家被强行均衡到几乎每个 token 都用差不多的专家，<b>失去了领域分化</b>。而 aux-loss-free 在 Layer 9 的 Github、DM-Math 行能看到几个深红 spike（如 expert 25–30、48–52 在 Github 行明显更亮），Layer 18 同样如此——<b>专家在不同领域上自发分化</b>，正是 batch-wise 均衡比 sequence-wise 均衡更宽松带来的好处。</div>
+</div>
+
+<h2 id="post">5 后训练</h2>
+
+<h3 id="sft">5.1 SFT：从 R1 蒸馏推理 + 控制长度</h3>
+<p>SFT 数据共 <b>1.5M instances</b>，分两类生成方式：</p>
+<ul>
+<li><b>Reasoning（数学/代码/逻辑）.</b> 先在领域上训一个 SFT+RL 的 expert 模型作 data generator。每条样本生成两份：<code>&lt;problem, original response&gt;</code> 与 <code>&lt;system prompt, problem, R1 response&gt;</code>；R1 风格 system prompt 强制反思+验证。RL 阶段用高温采样让模型学会同时使用两种风格；最终用 rejection sampling 在 expert 上挑高质量样本作 V3 的 SFT data。<b>核心 trick</b>：避免模型继承 R1 的"过度思考、格式乱、回答太长"。</li>
+<li><b>Non-reasoning（创作/角色扮演/简单问答）.</b> 用 V2.5 生成响应 + 人工校验。</li>
+</ul>
+<p>SFT 配置：cosine LR 5e-6 → 1e-6，2 个 epoch，序列内多样本拼接但用 sample mask 隔离可见性。</p>
+
+<h3 id="rl">5.2 RL：双 RM + GRPO</h3>
+<p><b>Reward Model.</b> 数学有确定答案（"\boxed{}"格式 + 规则验证），LeetCode 有编译器 + test case → 用 <b>rule-based RM</b>，抗 reward hacking。开放问题用 <b>model-based RM</b>，从 V3 SFT checkpoint 训出，且其 preference data <b>包含 chain-of-thought 推理</b>到 reward，进一步降低 hacking 风险。</p>
+<p><b>GRPO.</b> 抛弃 critic，从一组 sample 的均值估计 baseline：</p>
+<div class="formula">
+$$ \mathcal J_{GRPO}(\theta)=\mathbb E_{q,\{o_i\}\sim\pi_{old}}\!\Big[\frac{1}{G}\sum_{i=1}^G\min(r_i A_i,\,\mathrm{clip}(r_i,1-\varepsilon,1+\varepsilon)A_i)-\beta\,\mathbb D_{KL}(\pi_\theta\|\pi_{ref})\Big]. $$
+</div>
+<p>$r_i=\pi_\theta(o_i|q)/\pi_{old}(o_i|q)$，$A_i$ 是组内归一化优势。融合 reasoning + 偏好 + helpfulness 多 reward 一阶段 RL。</p>
+
+<h3 id="evalchat">5.3 Chat 模式主要结果（Table 6 节选）</h3>
+<table>
+<tr><th>类别</th><th>Benchmark</th><th>Qwen2.5-72B</th><th>Llama-3.1-405B</th><th>GPT-4o-0513</th><th>Claude-3.5-Sonnet</th><th><b>DeepSeek-V3</b></th></tr>
+<tr><td rowspan="3">English</td><td>MMLU</td><td>85.3</td><td>88.6</td><td>87.2</td><td>88.3</td><td>88.5</td></tr>
+<tr><td>MMLU-Pro</td><td>71.6</td><td>73.3</td><td>72.6</td><td>78.0</td><td>75.9</td></tr>
+<tr><td>GPQA-Diamond</td><td>49.0</td><td>51.1</td><td>49.9</td><td>65.0</td><td>59.1</td></tr>
+<tr><td rowspan="3">Code</td><td>LiveCodeBench (CoT)</td><td>31.1</td><td>28.4</td><td>33.4</td><td>36.3</td><td><b>40.5</b></td></tr>
+<tr><td>Codeforces (%)</td><td>24.8</td><td>25.3</td><td>23.6</td><td>20.3</td><td><b>51.6</b></td></tr>
+<tr><td>SWE Verified</td><td>23.8</td><td>24.5</td><td>38.8</td><td>50.8</td><td>42.0</td></tr>
+<tr><td rowspan="3">Math</td><td>AIME 2024</td><td>23.3</td><td>23.3</td><td>9.3</td><td>16.0</td><td><b>39.2</b></td></tr>
+<tr><td>MATH-500</td><td>80.0</td><td>73.8</td><td>74.6</td><td>78.3</td><td><b>90.2</b></td></tr>
+<tr><td>CNMO 2024</td><td>15.9</td><td>6.8</td><td>10.8</td><td>13.1</td><td><b>43.2</b></td></tr>
+<tr><td>Chinese</td><td>C-SimpleQA</td><td>48.4</td><td>50.4</td><td>59.3</td><td>51.3</td><td><b>64.8</b></td></tr>
+</table>
+
+<div class="metric-grid">
+<div class="metric-card"><div class="value">90.2</div><div class="label">MATH-500<br>（超 Claude 78.3）</div></div>
+<div class="metric-card"><div class="value">39.2</div><div class="label">AIME 2024<br>（超 Qwen2.5 +16）</div></div>
+<div class="metric-card"><div class="value">85.5</div><div class="label">Arena-Hard<br>（首个 &gt;85% 开源）</div></div>
+<div class="metric-card"><div class="value">70.0</div><div class="label">AlpacaEval 2.0<br>（LC 胜率）</div></div>
+</div>
+
+<p><b>开放式评估.</b> Arena-Hard 85.5（首个开源 &gt;85），AlpacaEval 2.0 LC 胜率 70.0（远超 GPT-4o 51.1 与 Claude-3.5 52.0）。<b>RewardBench.</b> V3 单跑 87.0 平均分≈ Claude-3.5-1022 (88.7)；maj@6 投票后 89.6 反超之，作为 generative RM 已可用。</p>
+
+<h2 id="analysis">6 深度分析</h2>
+<ul>
+<li><b>"控制 + 反馈"替代"附加损失"是 MoE 路由的更优范式.</b> Auxiliary loss 是把均衡需求显式塞进梯度，不可避免与 LM loss 抢方向。Bias-based 控制只动路由决策、不动反向传播，因此能在维持均衡的同时让专家保留 batch-wise 自由度。Figure 9 是直接证据——专家分化得以保留。</li>
+<li><b>MTP 的红利是"零推理成本的训练信号密集化".</b> $D=1$ 即只多预测 1 个 token，训练 loss 也只占 $\lambda$=0.1–0.3 的权重，但 HumanEval、AIME 等指标普遍 +2 ~ +9。同一 module 又可在推理时复用作 speculative draft，收两次。</li>
+<li><b>FP8 全栈不是"激进省 memory"，而是把 MoE 的通信瓶颈一并打掉.</b> 因为 dispatch 激活也走 FP8，跨节点 all-to-all 流量直接减半，跟 DualPipe overlap 叠在一起才能把 communication 完全隐藏。这三件事必须协同设计才不脱节。</li>
+<li><b>R1 蒸馏 → V3 是"经验迁移"而非"模型蒸馏".</b> V3 只吸收 R1 的 reflection / verification 模式，不直接对齐 R1 的输出长度，所以 V3 推理风格短促，但 MATH-500 反而比 Claude-3.5 高 12 分。Table 9 对比 V2.5 +R1 蒸馏后 MATH-500 平均长度从 769 → 1510，说明蒸馏对长度有放大风险——必须配 length penalty / 拒绝采样治理。</li>
+<li><b>$5.576M USD 这个数字的语义.</b> 仅指 V3 正式训练的 GPU 时间费用；不含前期消融、不含 R1 训练、不含数据清洗与人力。但同样口径下 Llama-3.1-405B 因为是 dense + FP16，至少多个数量级。它真正的意义是证明 <b>MoE + FP8 + 通信优化</b> 的协同收益在 671B 量级仍成立。</li>
+</ul>
+
+<h2 id="limit">7 局限性与展望（论文自陈）</h2>
+<ul>
+<li><b>部署单元偏大</b>：decoding 至少 320 GPU，对小团队不友好。期望未来硬件（更大 NVLink domain、IB/NVLink 统一接口、Tensor Core 原生支持 group scaling 与 online quantization）能压缩这个最小单元。</li>
+<li><b>生成速度</b>仍只比 V2 快 ~2×，仍有空间——主要受限于 H800 NVLink/IB 的不对称带宽与 SM 用作通信的浪费。</li>
+<li><b>SimpleQA 等英文事实性</b>仍弱于 GPT-4o / Claude-3.5，主要是因为训练 token 分配上多投了中文。</li>
+<li><b>评估方法论</b>：作者提醒未来要避免对 fixed benchmark 集 over-fit，引入更多维度的评测。</li>
+</ul>
+
+<h2 id="takeaways">8 核心总结</h2>
+<div class="highlight">
+<ol>
+<li><b>架构新意</b>：在 MLA + DeepSeekMoE 的稳健地基上，引入 <b>Bias-based Auxiliary-Loss-Free 负载均衡</b>（用反馈控制取代辅助损失，专家分化得以保留）和 <b>顺序因果链 MTP</b>（训练信号密集化 + 推理 1.8× speculative decoding）。</li>
+<li><b>系统创新</b>：<b>DualPipe</b> 把跨节点 all-to-all 完全 overlap 进计算；<b>IB + NVLink 协同 kernel</b> 仅 20/132 SM 即可吃满双链路；<b>FP8 全栈</b>（tile/block 量化 + CUDA-Core promote + online quant + E4M3 统一）首次在 671B MoE 上跑通，loss 误差 &lt; 0.25%。</li>
+<li><b>训练经济性</b>：14.8T tokens × 671B 总参数仅 <b>2.788M H800 GPU 小时（≈ 5.576M USD）</b>，全程零回滚；每 1T token 只要 180K GPU 小时。</li>
+<li><b>能力对齐</b>：从 R1 蒸馏长 CoT 推理给通用 V3，避免响应过长；MATH-500=90.2、AIME 2024=39.2 大幅超越同代闭源；Arena-Hard 85.5 是首个突破 85 的开源模型。</li>
+<li><b>共识贡献</b>：作者把硬件诉求（FP8 高精度累加、tile-wise quant、IB/NVLink 统一抽象）专门写成一节给 GPU 厂商——后来 Blackwell 的 microscaling 即是回应。</li>
+</ol>
+</div>
+
+<h2 id="refs">9 资源链接</h2>
+<ul>
+<li>arXiv: <a href="https://arxiv.org/abs/2412.19437" target="_blank">2412.19437</a> · PDF: <a href="https://arxiv.org/pdf/2412.19437" target="_blank">arxiv.org/pdf/2412.19437</a></li>
+<li>模型权重 / 推理代码: <a href="https://github.com/deepseek-ai/DeepSeek-V3" target="_blank">github.com/deepseek-ai/DeepSeek-V3</a></li>
+<li>HuggingFace: <a href="https://huggingface.co/deepseek-ai/DeepSeek-V3" target="_blank">deepseek-ai/DeepSeek-V3</a></li>
+<li>关键前作：DeepSeek-V2 / MLA (<a href="https://arxiv.org/abs/2405.04434">2405.04434</a>)、DeepSeekMoE (<a href="https://arxiv.org/abs/2401.06066">2401.06066</a>)、Aux-Loss-Free 路由 (Wang et al., 2024)、DeepSeek-R1 (<a href="https://arxiv.org/abs/2501.12948">2501.12948</a>)</li>
+<li>相关 benchmark：MMLU-Pro · GPQA · MATH-500 · AIME · LiveCodeBench · SWE-Verified · Arena-Hard · AlpacaEval 2.0</li>
+</ul>
+
+</main>
+</body>
+</html>
