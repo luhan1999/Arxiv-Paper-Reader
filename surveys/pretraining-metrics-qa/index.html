@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大模型预训练指标深问 · 该看什么、loss 更低更好吗、grokking 更早更好吗</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:255px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px;border:0;padding:0}
+.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}
+.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}
+.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:255px;max-width:880px;padding:48px 44px 120px}
+h1{font-size:27px;line-height:1.35;margin:0 0 6px;color:#000}
+.subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+h2{font-size:21px;color:#000;margin:40px 0 12px;padding-bottom:6px;border-bottom:2px solid #000}
+h3{font-size:16px;color:#000;margin:24px 0 8px}
+p{margin:0 0 12px;text-align:justify}
+.card,.highlight,.def,.verify{border:1px solid var(--line);padding:16px 18px;margin:16px 0;background:#fff}
+.highlight{background:#f7f7f2;border-left:3px solid #000}
+.def{background:#f4f6f8;border-left:3px solid #2c5777}
+.def .term{font-weight:700;color:#1a3a52;font-size:14px}
+.verify{background:#fbf7f2;border-left:3px solid #9a6a2f}
+.verify .vh{font-weight:700;color:#7a4f1f;font-size:13px;letter-spacing:1px}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left}
+td{border-bottom:1px solid #ddd;padding:7px 9px;vertical-align:top}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
+.metric-card{border:1px solid #ccc;text-align:center;padding:14px}
+.metric-card .value{font-size:22px;font-weight:700;color:#000}
+.metric-card .label{font-size:11px;color:#666;margin-top:4px}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto}
+.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px;border-radius:2px}
+.tag.green{border-color:#3a7a3a;color:#2c5c2c;background:#f0f6f0}
+.tag.red{border-color:#9a3a3a;color:#7a2c2c;background:#f6f0f0}
+code{background:#eef0f2;padding:1px 5px;font-size:13px;border-radius:2px;font-family:ui-monospace,Menlo,monospace}
+a.ref{color:#1a4d8f;text-decoration:none}a.ref:hover{text-decoration:underline}
+.lead{font-size:16px;border-left:3px solid #000;padding-left:16px;color:#333;font-style:italic;margin:18px 0}
+.verdict{font-size:15px;font-weight:700;background:#1a1a1a;color:#fff;padding:12px 16px;margin:14px 0;border-radius:3px}
+ul{margin:8px 0 14px}li{margin:4px 0}
+.small{font-size:12px;color:#666}
+@media(max-width:900px){.toc-sidebar{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line)}.main{margin-left:0;padding:24px 20px 80px}}
+</style>
+</head>
+<body>
+<nav class="toc-sidebar">
+  <h2>目录</h2>
+  <a href="#intro">引言 · 一个判断的陷阱</a>
+  <a href="#glossary">术语速查表</a>
+  <a href="#q1">Q1 · 该实时监控哪些指标</a>
+  <a href="#q1-stab" class="sub">稳定性信号</a>
+  <a href="#q1-batch" class="sub">批量 / 优化器信号</a>
+  <a href="#q1-moe" class="sub">MoE 健康度</a>
+  <a href="#q1-sys" class="sub">系统效率</a>
+  <a href="#q2">Q2 · loss 更低一定更好吗</a>
+  <a href="#q3">Q3 · grokking 更早更好吗</a>
+  <a href="#q4">Q4 · 可即时查看的诊断/预测</a>
+  <a href="#takeaways">总结 · 实操清单</a>
+  <a href="#refs">参考文献</a>
+</nav>
+
+<main class="main">
+<h1>大模型预训练指标 · 四问深答</h1>
+<div class="subtitle">该实时看什么 · LM loss 更低一定更好吗 · grokking 更早代表更好吗 · 哪些信号能在训练中即时查看<br>2026-06-09 · 25 个检索 agent + 对 20 条关键论断的对抗式核验 · 引用 40+ 篇论文</div>
+
+<section id="intro">
+<h2>引言 · 一个判断的陷阱</h2>
+<p>大多数人盯着一条 loss 曲线下降就安心了。但训练一个大模型，真正的工程问题不是"loss 在降吗"，而是三个更尖锐的问题：<strong>除了 loss 我还该看什么？loss 更低就一定更好吗？那些论文里的"质变"（比如 grokking）出现得早，是不是说明我训得更好？</strong></p>
+<div class="lead">本报告的核心立场：没有任何单一指标能定义"更好"。loss 会因 tokenizer、数据污染、捷径学习、分布失配而与真实能力<strong>解耦</strong>；grokking 的早晚是一个可调旋钮而非质量信号。真正的实践是<strong>一组指标交叉判读</strong>，并始终警惕"度量方式制造的假象"。</div>
+<p>下面每一个反直觉的结论，都标注了它的<span class="tag green">成立条件</span>和经过对抗式核验后的<span class="tag red">修正/打折</span>——因为很多被广泛传播的论断其实被夸大了。</p>
+</section>
+
+<!-- ============ GLOSSARY ============ -->
+<section id="glossary">
+<h2>术语速查表</h2>
+<p>正文会反复用到这些概念，先把新定义讲清楚。</p>
+
+<div class="def"><span class="term">LM Loss（语言建模损失 / 交叉熵）</span><br>模型对下一个 token 预测的负对数似然 $\mathcal{L}=-\frac{1}{T}\sum_t \log p_\theta(x_t\mid x_{&lt;t})$。困惑度 $\text{PPL}=e^{\mathcal{L}}$ 是它的指数形式。<strong>关键陷阱</strong>：它是 <em>per-token</em> 的，token 切得越碎、每个 token 越好预测，loss 数值越低——所以<strong>跨 tokenizer 不可直接比较</strong>。</div>
+
+<div class="def"><span class="term">Bits-per-Byte（BPB，每字节比特数）</span><br>把交叉熵除以文本的字节数而非 token 数：$\text{BPB}=\mathcal{L}_{\text{nats}}/(\ln 2 \cdot \text{bytes/token})$。这是一个<strong>tokenizer 无关</strong>的压缩率度量，让不同词表的模型可以公平比较。"压缩即智能"的近线性关系正是用 BPB 而非 raw loss 建立的。</div>
+
+<div class="def"><span class="term">Grokking（延迟泛化）</span><br>一种现象：训练精度早已达到 100%、模型严重过拟合<strong>很久之后</strong>，验证精度才突然从随机水平跃升到接近完美。两个必须区分的子概念：<br>· <strong>Onset timing（起始时刻）</strong>= 从"记住"到"泛化"中间的延迟<em>有多长</em>。本报告论证：这是一个<strong>可调旋钮</strong>。<br>· <strong>Occurrence（转变本身）</strong>= memorization→generalization 这个事件是否发生、发生后表示质量如何。这才是与能力相关的真实事件。</div>
+
+<div class="def"><span class="term">Anti-grokking（反 grokking）</span><br>把训练继续推到极端长（$10^6\sim10^7$ 步）+ 强 weight decay 后，已经 grok 的模型<strong>泛化又崩回随机</strong>。它的存在说明"训得越久越好"同样是错的——timing 与质量<strong>非单调</strong>。</div>
+
+<div class="def"><span class="term">Critical Batch Size（CBS，临界批量大小）</span><br>存在一个 batch 阈值：低于它，增大 batch 几乎线性减少所需步数（"完美并行"）；高于它，收益急剧递减。CBS 给出"加机器还划算"的上限。实证轨迹是<strong>近 0 → 快速上升 → plateau</strong>，且主要随<strong>数据量</strong>而非模型规模缩放。</div>
+
+<div class="def"><span class="term">Gradient Noise Scale（GNS，梯度噪声尺度）</span><br>McCandlish 2018 提出的廉价统计 $\mathcal{B}_{\text{simple}}=\text{tr}(\Sigma)/\|G\|^2$（梯度协方差迹除以梯度范数平方），用作 CBS 的<strong>代理</strong>。<strong>核验警告</strong>：在 Adam / 病态梯度下它会把 CBS 低估数个量级，不能单凭它精确定 batch。</div>
+
+<div class="def"><span class="term">z-loss（logit 正则）</span><br>辅助损失 $\mathcal{L}_z=\lambda\,(\log Z)^2$，其中 $Z=\sum_i e^{z_i}$ 是 softmax 的归一化分母。它把 $\log Z$ 拉向 0，防止 logit 量级膨胀导致数值发散。$\lambda$ 常取 $10^{-4}$。PaLM/ST-MoE/OLMo 用，GPT-3/LLaMA 系列不用。</div>
+
+<div class="def"><span class="term">MFU（Model FLOPs Utilization，模型算力利用率）</span><br>实际达到的 per-GPU FLOP/s 占理论峰值的比例。衡量"硬件用得有多满"，健康值约 50% 上下。持续偏低 = 并行/通信/数据加载有瓶颈，与模型质量无关但直接决定成本。</div>
+
+<div class="def"><span class="term">MaxVio（最大负载违背，MoE 专用）</span><br>专家混合（MoE）中，各专家实际负载相对均匀负载的<strong>最大偏离</strong>。过高意味着 routing collapse（少数专家被挤爆、其余闲置），浪费容量与 GPU。</div>
+
+<div class="def"><span class="term">Double Descent（双下降）</span><br>测试误差随模型规模/训练轮数<strong>先降→升→再降</strong>的非单调曲线，峰值出现在"插值阈值"（模型刚好能记住全部训练集）附近。<strong>核验</strong>：它主要发生在阈值附近或含标签噪声时，前沿 LLM 处于<strong>过参数化区</strong>，test loss 对 compute 近似单调，所以不是预训练的主导 regime。</div>
+</section>
+
+<!-- ============ Q1 ============ -->
+<section id="q1">
+<h2>Q1 · 除了 LM loss，该实时监控哪些指标？</h2>
+<p>分四类。<strong>总原则</strong>：没有单一指标是万能告警，多数信号是"<strong>有依据的先行指标</strong>"而非闭环自动干预器；并且很多指标存在"<strong>急性发散 vs 良性漂移</strong>"的语义混淆，必须结合上下文判读，否则会大量误报。</p>
+
+<h3 id="q1-stab">A. 稳定性信号（防发散）</h3>
+<table>
+<thead><tr><th>指标</th><th>测什么</th><th>健康</th><th>病态</th><th>处理</th></tr></thead>
+<tbody>
+<tr><td><strong>梯度全局范数</strong></td><td>全模型梯度 L2 范数</td><td>平稳/缓降，与 loss 同步</td><td>与 loss spike <strong>同时</strong>的突增 = 真发散</td><td>跳过/回退 batch、降 LR</td></tr>
+<tr><td><strong>attention-logit / 线性层输出范数</strong></td><td>attention logits 与 QKV/Proj/FC2 输出 L2</td><td>有界、缓增</td><td>无界增长，高 LR 下最快</td><td>qk-layernorm、softmax capping（预防性）</td></tr>
+<tr><td><strong>per-head attention entropy</strong></td><td>每个注意力头的分布熵</td><td>适中</td><td>熵塌缩伴随振荡/发散</td><td>σReparam（谱范数重参数化）</td></tr>
+<tr><td><strong>z-loss / log(Z)</strong></td><td>softmax 归一化分母是否≈1</td><td>$\log Z\approx0$</td><td>logit 量级膨胀（高 LR）</td><td>加 z-loss（$10^{-4}\cdot\log^2 Z$）</td></tr>
+</tbody>
+</table>
+
+<div class="verify"><span class="vh">⚠ 对抗核验修正</span>
+<ul>
+<li><strong>梯度范数末期缓升是良性的。</strong> 训练末期由 weight-decay × normalization × LR-schedule 交互导致的 grad-norm 缓慢爬升 <a class="ref" href="#r-adamc">[2506.02285]</a> 是优化器配置次优的信号，loss 仍在收敛——当成发散告警就会误报。用 AdamC 类修正，而非中断训练。只有"与 loss spike <em>同时</em>的突增"才是真发散。</li>
+<li><strong>attention entropy 与 attention-logit 范数不是独立告警。</strong> 由定理，熵随 attention-logit 谱范数<em>指数下降</em> <a class="ref" href="#r-sigmareparam">[2303.06296]</a>，二者是"同一现象的两个视角"、共变。别把它们当两个独立证据。</li>
+<li><strong>z-loss 常见但非普适。</strong> PaLM/ST-MoE/OLMo 采用，GPT-3/LLaMA 系列等许多生产模型并不使用——它是高 LR regime 的预防措施，不是必备项。</li>
+</ul>
+</div>
+
+<h3 id="q1-batch">B. 批量 / 优化器信号</h3>
+<ul>
+<li><strong>GNS（梯度噪声尺度）→ 估 critical batch size</strong>，决定数据并行/batch 上限。⚠ 核验：GNS 在 Adam/病态梯度下作为 CBS 代理<strong>不可靠</strong>（<a class="ref" href="#r-cbs2">[2505.23971]</a> 实测低估数个量级），可靠的 CBS 需要 branched runs，成本高。</li>
+<li><strong>gradient variance（梯度方差）→ 触发 sequence-length warmup</strong>。早期长序列样本驱动的极端梯度方差与不稳定强相关 <a class="ref" href="#r-seqwarmup">[2108.06084]</a>。注意补救手段是<strong>序列长度 warmup</strong>而非 batch warmup。</li>
+</ul>
+
+<h3 id="q1-moe">C. MoE 健康度（仅 MoE 模型）</h3>
+<ul>
+<li><strong>per-expert load balance（MaxVio / 变异系数）</strong>：负载不均 → routing collapse、容量与 GPU 浪费。用动态 routing bias 修正（DeepSeek Loss-Free <a class="ref" href="#r-lossfree">[2408.15664]</a>）或 auxiliary load loss。配套监控 <strong>router z-loss</strong> 防 logit 爆炸。</li>
+<li>⚠ router entropy / specialization 多为<strong>事后诊断</strong>指标，不适合做每步告警。</li>
+</ul>
+
+<h3 id="q1-sys">D. 系统效率</h3>
+<ul>
+<li><strong>MFU / 吞吐</strong>：持续低于预期 = 系统瓶颈（并行/通信/数据加载）。健康约 ~52% 峰值。术语由 PaLM 提出、<a class="ref" href="#r-mfu">[2211.05102]</a> 形式化。它不反映模型质量，但直接决定烧钱速度。</li>
+</ul>
+</section>
+
+<!-- ============ Q2 ============ -->
+<section id="q2">
+<h2>Q2 · LM loss 更低，一定 = 模型更好吗？</h2>
+<div class="verdict">核验后结论：不一定。loss 是下游能力的"强但非普适"代理。</div>
+<p>判断的关键在于你是不是在做 <strong>apples-to-apples（同配方）</strong> 比较。</p>
+
+<h3>✅ 成立条件（同配方）</h3>
+<p>固定<strong>语料、tokenizer、架构</strong>时，loss 更低基本就是更好：</p>
+<ul>
+<li>相同 pretraining loss 的不同规模模型，下游表现一致，且能力在 loss 低于某阈值时才涌现 <a class="ref" href="#r-lossperspect">[2403.15796]</a>。</li>
+<li>跨 31 个公开 base 模型，用 tokenizer 无关的 <strong>bits-per-byte 压缩率与平均基准分近乎线性相关</strong> <a class="ref" href="#r-compression">[2404.09937]</a>——"压缩即智能"。</li>
+</ul>
+<p>即：在<strong>同分布、未做对齐微调</strong>的 base 模型上，loss 更低确实更聪明。</p>
+
+<h3>❌ 解耦的情形（跨配方 / 有污染）</h3>
+<table>
+<thead><tr><th>反例</th><th>机制</th><th>论文</th></tr></thead>
+<tbody>
+<tr><td>下游 scaling 多数不可线性外推</td><td>loss→任务表现仅 18/46≈<strong>39%</strong> 呈可外推线性，其余 inverse/非单调/噪声/突变</td><td><a class="ref" href="#r-unreliable">2507.00885</a></td></tr>
+<tr><td>同 loss 不同能力</td><td>优化器隐式偏置：匹配 pretraining loss 但 GSM8k 差 +15%</td><td><a class="ref" href="#r-nexus">2604.09258</a></td></tr>
+<tr><td>tokenizer 使 loss 不可比</td><td>per-token CE 被 token 粒度缩放，须 BPB 归一化</td><td><a class="ref" href="#r-tokfair">2605.24718</a></td></tr>
+<tr><td>分布不对齐</td><td>下游 CE 单调降，但 BLEU/COMET 反而波动/变差</td><td><a class="ref" href="#r-misalign">2402.04177</a></td></tr>
+<tr><td><strong>数据污染</strong></td><td>评测集泄漏进语料，同时压低 loss 并虚高分数</td><td><a class="ref" href="#r-conda">2407.08716</a></td></tr>
+<tr><td>捷径/伪特征</td><td>表层捷径最小化 loss、刷高 i.i.d. 分，却在 OOD 崩溃</td><td><a class="ref" href="#r-shortcut">2208.11857</a></td></tr>
+</tbody>
+</table>
+
+<div class="verify"><span class="vh">⚠ 对抗核验：几条流行"反例"被打了折扣（诚实呈现）</span>
+<ul>
+<li><strong>"39% 不成立"略夸大。</strong> 那 39% 衡量的是"是否存在可外推的<em>线性</em>形式"，而非"方向性失败"。真正<em>反向</em>（inverse/非单调）的占比小得多——大多数情形 loss 降仍对应能力升，只是非线性。</li>
+<li><strong>"同 loss 差 15%"有水分。</strong> 那个更优模型实际 OOD loss 低了 0.012（并非完全同 loss），且 15% 是单一基准的上界、由刻意工程化的优化器得到。</li>
+<li><strong>tokenizer 的 2.5× 差异是跨<em>语言</em>不是跨<em>模型</em>。</strong> 英语 ~1.2 vs 希腊/马耳他 ~3.1 tok/word；同语言跨模型差异小得多。且压缩≈智能仅对共享语料的 base 模型成立，instruction-tuning/RLHF 会<em>升高</em>压缩 loss 却<em>改善</em>对齐。</li>
+<li><strong>记忆驱动的 loss 下降常是真实学习。</strong> 对长尾自然分布，记忆稀有样本是近优泛化所<em>必需</em>；只有高重复字符串的逐字背诵才是少量、非主导成分。不能一律当作"假捷径"。</li>
+<li><strong>校准/多样性退化应归咎 post-training。</strong> 进一步压熵牺牲校准与多样性，但这主要由 <strong>RLHF/对齐</strong>造成——base 模型 loss 更低通常校准<em>更好</em>。这个反例不该算在"预训练 loss"头上。</li>
+<li><strong>双下降不是预训练主导 regime。</strong> 它发生在插值阈值附近/含标签噪声，前沿 LLM 在过参数化区，scaling law 使 test loss 对 compute 近似单调。</li>
+</ul>
+</div>
+
+<div class="highlight"><strong>给从业者的可操作判断</strong>：当你看到 loss 降了，先问三件事——(1) tokenizer/语料变了吗？变了就用 BPB 比，别比 raw loss；(2) 评测集可能进训练数据了吗？查污染；(3) 这是 base 模型还是对齐后的？对齐会让 loss 与"好用"反向。三关都过，loss 更低才能放心说更好。</div>
+</section>
+
+<!-- ============ Q3 ============ -->
+<section id="q3">
+<h2>Q3 · grokking 更早出现，代表模型/训练更好吗？</h2>
+<div class="verdict">核验后结论：不能。grokking 的"延迟时长"主要是一个可被原则性放大或彻底消除的<strong>可调旋钮</strong>，而非模型质量的因果指标。</div>
+
+<p>你提到 grokking 常出现在"做选择题之类"的任务上——这里要先提醒：选择题准确率正是一种<strong>离散指标</strong>，它本身就容易把平滑的概率改善压成阶跃假象。用它判断 grokking 要尤其小心（见 Q2 的度量陷阱）。</p>
+
+<h3>必须区分的两件事</h3>
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">Timing</div><div class="label">延迟<strong>多长</strong> = 旋钮，可工程化掉</div></div>
+  <div class="metric-card"><div class="value">Occurrence</div><div class="label">转变<strong>本身</strong> = 真实表示质量事件</div></div>
+</div>
+<ol>
+<li><strong>延迟时长（timing）是旋钮。</strong> 多篇理论证明它可被超参/初始化/数值技巧原则性地放大或消除：岭回归闭式证明 <a class="ref" href="#r-ridge">[2601.19791]</a>、Omnigrok 的 LU 机制 <a class="ref" href="#r-omni2">[2210.01117]</a>、edge-of-numerical-stability <a class="ref" href="#r-stablemax">[2501.04697]</a>。Grokfast 通过放大慢梯度<strong>加速 &gt;50×</strong> <a class="ref" href="#r-grokfast">[2405.20233]</a>。既然能随手调，"更早 grok"本身就不携带因果性的"更好"。</li>
+<li><strong>memorization→generalization 转变是真实事件。</strong> 转变后概念向量更具预测性、占据更高维子空间，伴随真实电路/结构形成。延迟可调，但<em>转变本身</em>与能力相关。</li>
+</ol>
+
+<div class="verify"><span class="vh">⚠ 关键：timing 与质量非单调</span>
+<p>把旋钮推得更远会触发 <strong>anti-grokking</strong>——超长训练后泛化崩回随机。所以<strong>既非"越早越好"，也非"越久越好"</strong>。<br><br>还要警惕诊断指标本身的可靠性：<strong>权重 L2 范数</strong>在 canonical 模算术设定下是机制性的，但在真实/多属性设定下<strong>不可靠</strong>。激活稀疏性、特征秩、commutator defect 等相关性更强——但其中<strong>只有 commutator defect 有干预性因果证据</strong>，sparsity/circuit-complexity 在 anti-grokking regime 会失效 <a class="ref" href="#r-realprog2">[2405.12755]</a>。</p>
+</div>
+
+<h3>哪些旋钮能控制 grokking 起始？</h3>
+<ul>
+<li><strong>weight decay 与 learning rate</strong>：Norm-Separation Delay Law，$R^2\approx0.9$。</li>
+<li><strong>优化器选择</strong>：Muon 相比 AdamW 把 onset 从 ~153 → 103 epoch 提前 <a class="ref" href="#r-muon">[2504.16041]</a>。</li>
+<li><strong>初始化尺度 / 权重范数</strong>：Omnigrok 既能<em>诱导</em>也能<em>消除</em> grokking <a class="ref" href="#r-omni2">[2210.01117]</a>。</li>
+<li><strong>归一化与架构拓扑</strong>：&gt;20× 缩短延迟，且无需 weight decay。</li>
+<li><strong>数值稳定化</strong>：StableMax/⊥Grad 在<em>无</em> weight decay 下也能快速泛化 <a class="ref" href="#r-stablemax">[2501.04697]</a>。</li>
+</ul>
+<p class="small">本质机制：过参数化 + 小数据下，记忆电路与泛化电路<strong>竞争</strong>，存在 critical dataset size 阈值，跨过阈值越早、onset 越早——而这恰恰可被工程化掉。</p>
+
+<h3>它在真实 LLM 预训练里重要吗？</h3>
+<p>grokking <strong>确实出现</strong>在真实大规模预训练中，但形态不同：是<strong>局部、异步</strong>的——不同数据子群按各自分布在不同时间进入 memorization→generalization 转变（OLMoE 单 epoch MoE 预训练 <a class="ref" href="#r-olmoe">[2506.21551]</a>；dense LM 语法泛化延迟 <a class="ref" href="#r-syntax">[2606.00230]</a>）。</p>
+<div class="verify"><span class="vh">⚠ 必须强 hedge 的三点</span>
+<ul>
+<li><strong>证据薄弱</strong>：MoE 那篇是 <strong>n=1 单模型</strong>研究，标题自带问号，pathway 解释为相关性而非因果定律。</li>
+<li><strong>归因错位</strong>：局部/异步源于<strong>异构单遍数据</strong>而非 MoE 架构本身（dense LM 也有），不应归因于 MoE。</li>
+<li><strong>regime 不匹配</strong>：经典 grokking 在单 epoch web-scale 预训练中几乎不显现（要人为构造 train/val 代理划分才观测到）；anti-grokking 所需的极端过训练（$10^6\sim10^7$ 步 + 强 weight decay + 微小数据）正好<strong>与 compute-optimal/欠训练的标准预训练相反</strong>，实践中很少触及。</li>
+</ul>
+</div>
+<div class="highlight"><strong>底线</strong>：grokking 不是纯玩具任务伪影，但"<strong>更早 grok = 预训练更好</strong>"在真实 LLM 中<strong>并无证据支撑</strong>——因为这些工作恰恰显示的是<em>泛化滞后于记忆</em>。把 grokking 起始时间当 KPI 去优化，是优化了一个旋钮，不是优化了模型。</div>
+</section>
+
+<!-- ============ Q4 ============ -->
+<section id="q4">
+<h2>Q4 · 训练中可"即时查看"的诊断 / 预测方法</h2>
+<p><strong>必须诚实区分两类</strong>，因为很多被称作"早期诊断"的方法其实是<strong>训练前规划工具</strong>而非在线监控：</p>
+<ul>
+<li><strong>(a) 真正的在训实时统计</strong>：梯度/logit 范数、噪声尺度、loss 曲线机制信号——每步几乎零成本可算。</li>
+<li><strong>(b) 跨规模外推预测</strong>：在小模型族上拟合，训练前/早期对大模型做 go/no-go——精度高度依赖任务与指标。</li>
+</ul>
+
+<table>
+<thead><tr><th>方法</th><th>类型</th><th>算什么</th><th>支持什么决策（含 hedge）</th><th>论文</th></tr></thead>
+<tbody>
+<tr><td><strong>GNS</strong></td><td>(a)</td><td>逐步梯度噪声统计</td><td>估 CBS、batch 上限。⚠ Adam 下低估数个量级</td><td><a class="ref" href="#r-gns">1812.06162</a></td></tr>
+<tr><td><strong>直测 CBS + batch warmup</strong></td><td>(a/b)</td><td>branched/sweep 测 CBS 轨迹</td><td>batch warmup（OLMo 1B 减 43% 步）。⚠ 直测成本高</td><td><a class="ref" href="#r-cbs2">2505.23971</a></td></tr>
+<tr><td><strong>失稳早期信号</strong></td><td>(a/b)</td><td>max attention logit、grad/update RMS</td><td>预警 loss spike。⚠ <a class="ref" href="#r-proxies2">2309.14322</a> 实为跨 scale 外推；<a class="ref" href="#r-spikenomore">2312.16903</a> 是预防性架构处方、不提供检测信号</td><td>2309.14322</td></tr>
+<tr><td><strong>PassUntil</strong></td><td>(b)</td><td>无限分辨率采样测亚阈值改进</td><td>预测任务 scaling（曾 0.05% 偏差）。⚠ 单任务、加速涌现曲线拟合不了</td><td><a class="ref" href="#r-passuntil2">2310.03262</a></td></tr>
+<tr><td><strong>FLP / FLP-M</strong></td><td>(b)</td><td>FLOPs→loss→performance 两阶段映射</td><td>训练前 go/no-go 与数据配比。⚠ 7B ~5% 误差，13B 退化到 10%</td><td><a class="ref" href="#r-flp">2410.08527</a></td></tr>
+<tr><td><strong>proxy-task aggregation</strong></td><td>(b)</td><td>相关性验证过的代理任务聚合打分</td><td>用中间 checkpoint 预测缺席能力。⚠ 仅单 case study 验证</td><td><a class="ref" href="#r-proxytask">2412.07111</a></td></tr>
+<tr><td><strong>difficulty-stratified scaling</strong></td><td>(b)</td><td>按难度分桶暴露 U/倒U 模式</td><td>从涌现前预测涌现阈值。⚠ 依赖干净难易划分</td><td><a class="ref" href="#r-ushape2">2410.01692</a></td></tr>
+<tr><td><strong>Pythia checkpoint 套件</strong></td><td>(a)</td><td>154 个同序数据 checkpoint</td><td>逐 checkpoint 追踪记忆时序与指标演化</td><td><a class="ref" href="#r-pythia">2304.01373</a></td></tr>
+</tbody>
+</table>
+
+<div class="highlight"><strong>一句话区分</strong>：真正能"边训边看"的只有 (a) 类——梯度/logit 范数、GNS、per-domain 验证 loss、loss-vs-token-position 曲线。(b) 类是"开训前帮你决定要不要训、训多大"的规划工具，别误当成在线告警。</div>
+</section>
+
+<!-- ============ TAKEAWAYS ============ -->
+<section id="takeaways">
+<h2>总结 · 一页实操清单</h2>
+<div class="card">
+<p><strong>① 仪表盘该放什么（按优先级）</strong></p>
+<ul>
+<li>主信号：train/val loss + per-domain 验证 loss（防某个数据域退化）</li>
+<li>稳定性：梯度全局范数、max attention-logit、（高 LR 时）log(Z)</li>
+<li>批量：GNS 轨迹（当趋势看，不当精确值）</li>
+<li>MoE：MaxVio + router z-loss</li>
+<li>系统：MFU / 吞吐</li>
+</ul>
+<p><strong>② "loss 降了"先过三关</strong>：tokenizer/语料变没变（变→用 BPB）、有没有数据污染、是不是对齐后模型。</p>
+<p><strong>③ 别把 grokking 起始时间当 KPI</strong>：它是旋钮不是质量。要看就看转变<em>是否发生</em>及转变后的表示质量，而非<em>多早发生</em>。</p>
+<p><strong>④ 区分在线监控 vs 训练前规划</strong>：梯度/logit 范数是前者；FLP/PassUntil/scaling law 外推是后者。</p>
+<p><strong>⑤ 警惕离散指标的假象</strong>：选择题准确率、exact-match 会把平滑改善压成"突变/涌现"。判断质变前，先换连续指标（BPB、编辑距离、per-token log-prob）复核。</p>
+</div>
+</section>
+
+<!-- ============ REFS ============ -->
+<section id="refs">
+<h2>参考文献</h2>
+<table><tbody>
+<tr><td id="r-spikenomore">Spike No More</td><td><a class="ref" href="https://arxiv.org/abs/2312.16903">2312.16903</a></td></tr>
+<tr><td id="r-adamc">AdamC / grad-norm 末期爬升</td><td><a class="ref" href="https://arxiv.org/abs/2506.02285">2506.02285</a></td></tr>
+<tr><td id="r-proxies2">Small-scale proxies for large-scale instabilities</td><td><a class="ref" href="https://arxiv.org/abs/2309.14322">2309.14322</a></td></tr>
+<tr><td>attention-logit growth vs LR</td><td><a class="ref" href="https://arxiv.org/abs/2410.16682">2410.16682</a></td></tr>
+<tr><td id="r-sigmareparam">σReparam / attention entropy collapse</td><td><a class="ref" href="https://arxiv.org/abs/2303.06296">2303.06296</a></td></tr>
+<tr><td>PaLM（z-loss、MFU 来源）</td><td><a class="ref" href="https://arxiv.org/abs/2204.02311">2204.02311</a></td></tr>
+<tr><td>ST-MoE（router z-loss）</td><td><a class="ref" href="https://arxiv.org/abs/2202.08906">2202.08906</a></td></tr>
+<tr><td id="r-gns">Gradient Noise Scale（McCandlish）</td><td><a class="ref" href="https://arxiv.org/abs/1812.06162">1812.06162</a></td></tr>
+<tr><td id="r-cbs2">Critical batch size via branched training</td><td><a class="ref" href="https://arxiv.org/abs/2505.23971">2505.23971</a></td></tr>
+<tr><td>How Does Critical Batch Size Scale?</td><td><a class="ref" href="https://arxiv.org/abs/2410.21676">2410.21676</a></td></tr>
+<tr><td id="r-seqwarmup">Sequence-length warmup / 梯度方差</td><td><a class="ref" href="https://arxiv.org/abs/2108.06084">2108.06084</a></td></tr>
+<tr><td id="r-lossfree">DeepSeek Loss-Free Load Balancing</td><td><a class="ref" href="https://arxiv.org/abs/2408.15664">2408.15664</a></td></tr>
+<tr><td id="r-mfu">Reducing Activation Recomputation（MFU 形式化）</td><td><a class="ref" href="https://arxiv.org/abs/2211.05102">2211.05102</a></td></tr>
+<tr><td>Megatron-LM 吞吐</td><td><a class="ref" href="https://arxiv.org/abs/2104.04473">2104.04473</a></td></tr>
+<tr><td id="r-lossperspect">Emergent Abilities from the Loss Perspective</td><td><a class="ref" href="https://arxiv.org/abs/2403.15796">2403.15796</a></td></tr>
+<tr><td id="r-compression">Compression Represents Intelligence Linearly</td><td><a class="ref" href="https://arxiv.org/abs/2404.09937">2404.09937</a></td></tr>
+<tr><td id="r-unreliable">Scaling Laws Unreliable for Downstream Tasks</td><td><a class="ref" href="https://arxiv.org/abs/2507.00885">2507.00885</a></td></tr>
+<tr><td id="r-nexus">Nexus 优化器（同 loss 不同能力）</td><td><a class="ref" href="https://arxiv.org/abs/2604.09258">2604.09258</a></td></tr>
+<tr><td id="r-tokfair">Tokenizer fairness / BPB</td><td><a class="ref" href="https://arxiv.org/abs/2605.24718">2605.24718</a></td></tr>
+<tr><td id="r-misalign">下游分布失配（CE vs BLEU/COMET）</td><td><a class="ref" href="https://arxiv.org/abs/2402.04177">2402.04177</a></td></tr>
+<tr><td id="r-conda">CONDA 数据污染</td><td><a class="ref" href="https://arxiv.org/abs/2407.08716">2407.08716</a></td></tr>
+<tr><td>改写型污染逃逸去重</td><td><a class="ref" href="https://arxiv.org/abs/2407.21530">2407.21530</a></td></tr>
+<tr><td>记忆 vs 泛化交织</td><td><a class="ref" href="https://arxiv.org/abs/2407.17817">2407.17817</a></td></tr>
+<tr><td id="r-shortcut">Shortcut Learning in LLMs</td><td><a class="ref" href="https://arxiv.org/abs/2208.11857">2208.11857</a></td></tr>
+<tr><td>Deep Double Descent</td><td><a class="ref" href="https://arxiv.org/abs/1912.02292">1912.02292</a></td></tr>
+<tr><td>校准/多样性退化（post-training）</td><td><a class="ref" href="https://arxiv.org/abs/2605.11128">2605.11128</a></td></tr>
+<tr><td>Grokking（原始论文）</td><td><a class="ref" href="https://arxiv.org/abs/2201.02177">2201.02177</a></td></tr>
+<tr><td id="r-omni2">Omnigrok</td><td><a class="ref" href="https://arxiv.org/abs/2210.01117">2210.01117</a></td></tr>
+<tr><td>Progress measures for grokking</td><td><a class="ref" href="https://arxiv.org/abs/2301.05217">2301.05217</a></td></tr>
+<tr><td id="r-stablemax">StableMax / ⊥Grad（edge of numerical stability）</td><td><a class="ref" href="https://arxiv.org/abs/2501.04697">2501.04697</a></td></tr>
+<tr><td id="r-ridge">岭回归闭式 grokking 延迟</td><td><a class="ref" href="https://arxiv.org/abs/2601.19791">2601.19791</a></td></tr>
+<tr><td id="r-grokfast">Grokfast（加速 &gt;50×）</td><td><a class="ref" href="https://arxiv.org/abs/2405.20233">2405.20233</a></td></tr>
+<tr><td id="r-muon">Muon vs AdamW grokking onset</td><td><a class="ref" href="https://arxiv.org/abs/2504.16041">2504.16041</a></td></tr>
+<tr><td id="r-realprog2">真实任务 progress measures</td><td><a class="ref" href="https://arxiv.org/abs/2405.12755">2405.12755</a></td></tr>
+<tr><td id="r-olmoe">OLMoE grokking in MoE pretraining</td><td><a class="ref" href="https://arxiv.org/abs/2506.21551">2506.21551</a></td></tr>
+<tr><td id="r-syntax">dense LM 语法泛化延迟</td><td><a class="ref" href="https://arxiv.org/abs/2606.00230">2606.00230</a></td></tr>
+<tr><td id="r-passuntil2">PassUntil</td><td><a class="ref" href="https://arxiv.org/abs/2310.03262">2310.03262</a></td></tr>
+<tr><td id="r-flp">FLP / FLP-M</td><td><a class="ref" href="https://arxiv.org/abs/2410.08527">2410.08527</a></td></tr>
+<tr><td id="r-proxytask">Proxy-task aggregation</td><td><a class="ref" href="https://arxiv.org/abs/2412.07111">2412.07111</a></td></tr>
+<tr><td id="r-ushape2">U-shaped Scaling（Slice-and-Sandwich）</td><td><a class="ref" href="https://arxiv.org/abs/2410.01692">2410.01692</a></td></tr>
+<tr><td id="r-pythia">Pythia checkpoint 套件</td><td><a class="ref" href="https://arxiv.org/abs/2304.01373">2304.01373</a></td></tr>
+</tbody></table>
+<p class="small" style="margin-top:18px">本报告由 25 个检索 agent + 对 20 条关键论断的对抗式核验综合而成。所有"对抗核验修正"框中的打折/限定，均来自专门尝试反驳原论断的独立核验 agent。引用论文以输入证据中出现者为限。</p>
+</section>
+
+</main>
+</body>
+</html>

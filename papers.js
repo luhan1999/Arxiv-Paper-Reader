@@ -88,6 +88,13 @@ window.SITE = {
       summary: "聚焦“几个共享专家最优”。四阶段演进：<b>起源(DeepSpeed 2022) → 标准化(DeepSeekMoE 2024) → Scaling Law 精确化(腾讯/蚂蚁 2025，U 形、1–2 个) → 最新质疑(Meta 2026)</b>。含 41 个前沿模型配置全表（按发布倒序）。",
       tags: ["Shared Expert", "MoE", "综述"],
     },
+    {
+      title: "大模型预训练指标深问：该看什么 · loss 更低更好吗 · grokking 更早更好吗",
+      category: "survey", date: "2026-06", source: "自制 Survey · 40+ 篇 · 对抗核验", authors: "25 检索 agent + 20 条论断对抗式核验",
+      path: "surveys/pretraining-metrics-qa/index.html",
+      summary: "围绕预训练指标的四个尖锐问题逐一深答：<b>(1) 除 loss 外该实时监控哪些指标</b>（梯度/attention-logit 范数、GNS、z-loss、MaxVio、MFU）；<b>(2) loss 更低一定更好吗</b>——给出同配方成立条件与 tokenizer/污染/捷径/分布失配下的解耦反例；<b>(3) grokking 更早 = 更好吗</b>——论证延迟时长是可调旋钮而非质量信号、并区分 timing 与 occurrence；<b>(4) 可即时查看的诊断/预测方法</b>。每个反直觉结论都附对抗核验后的条件限定。",
+      tags: ["训练指标", "Scaling Law", "综述"],
+    },
 
     /* ---------------- Daily Paper ---------------- */
     {
