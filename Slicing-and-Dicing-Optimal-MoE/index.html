@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slicing and Dicing：配置最优专家混合 (MoE) 深度解读</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:240px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px}.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:240px;max-width:860px;padding:48px 44px 120px} h1{font-size:27px;line-height:1.35;margin:0 0 6px;color:#000} .subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+h2{font-size:20px;color:#000;margin:32px 0 12px;padding-bottom:6px;border-bottom:2px solid #000} h3{font-size:16px;color:#000;margin:24px 0 8px} p{margin:0 0 12px;text-align:justify}
+.card,.highlight{border:1px solid var(--line);padding:18px;margin:16px 0;background:#fff}.highlight{background:#f7f7f2;border-left:3px solid #000}
+.figure-box{border:1px solid #ccc;padding:14px;text-align:center;margin:20px auto;background:#fff}.figure-box img{max-width:100%;height:auto}.caption{font-size:12px;color:#444;margin-top:8px;line-height:1.65;font-style:italic;text-align:left}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px} th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left} td{border-bottom:1px solid #ddd;padding:7px 9px}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}.metric-card{border:1px solid #ccc;text-align:center;padding:14px}.metric-card .value{font-size:25px;font-weight:700;color:#000}.metric-card .label{font-size:11px;color:#666}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto}.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px}
+.authors{font-size:13px;color:#444;margin-bottom:4px}
+.takeaway{counter-reset:none}
+ul,ol{margin:0 0 12px;padding-left:22px}li{margin:4px 0}
+code{background:#f0f0f0;padding:1px 5px;font-size:13px;font-family:'SF Mono',Menlo,monospace}
+</style>
+</head>
+<body>
+<nav class="toc-sidebar">
+  <h2>目录</h2>
+  <a href="#abs">摘要 · 一句话总结</a>
+  <a href="#bg">1 · 背景与核心问题</a>
+  <a href="#method">2 · MoE 设计空间与定义</a>
+  <a href="#concepts" class="sub">2.1 关键量：粒度 / 稀疏度</a>
+  <a href="#router" class="sub">2.2 路由与负载均衡</a>
+  <a href="#exp">3 · 实验设置</a>
+  <a href="#r1">4 · 核心发现一：总参数为王</a>
+  <a href="#r2">5 · 核心发现二：最优专家尺寸近乎不变</a>
+  <a href="#r3">6 · 核心发现三：灵活性无益</a>
+  <a href="#r4">7 · 核心发现四：路由消融</a>
+  <a href="#analysis">8 · 深度分析与对比</a>
+  <a href="#limit">9 · 局限性与展望</a>
+  <a href="#sum">10 · 核心总结</a>
+  <a href="#src">资源链接</a>
+</nav>
+
+<div class="main">
+<h1>Slicing and Dicing：配置最优的专家混合 (MoE)</h1>
+<div class="authors">Margaret Li, Danielle Rothermel, Sneha Kudugunta, Luke Zettlemoyer — University of Washington / NYU</div>
+<div class="subtitle">arXiv:2605.11689v1 [cs.LG] · 2026 · 首个系统性、大规模解耦的 MoE 设计空间研究（2000+ 预训练实验）</div>
+
+<div class="highlight" id="abs">
+<b>一句话总结：</b>作者训练了 <b>2000 多个</b> MoE 语言模型（最大 6.6B 总参数），在严格 FLOP-match 的前提下，<b>独立地</b>扫遍了专家数量、专家粒度、异构专家、共享专家（generalist）、负载均衡等所有核心设计选择。结论出人意料地简单：<b>真正决定 MoE 质量的只有两件事——专家粒度（专家尺寸）和总专家数量</b>；其余花哨的设计（异构、共享专家）几乎没有收益甚至有害，负载均衡只要在合理区间即可。实践配方因此被极大简化。
+</div>
+
+<h2 id="bg">1 · 背景与核心问题</h2>
+<p>专家混合（Mixture of Experts, MoE）通过一个可学习的<b>路由器</b>，在每个 token 上只激活全部专家中的一小部分，从而把"模型容量"和"每步计算量"解耦——这是当今大模型（DeepSeek、Mixtral 等）实现高效扩展的核心手段。</p>
+<p>问题在于：MoE 引入了一大批<b>相互纠缠</b>的设计旋钮——总专家数、专家粒度、是否使用共享专家、是否异构、用哪种负载均衡、是否丢弃 token……以往的研究几乎都是<b>一次只动一两个旋钮、且范围很窄</b>。于是一个根本问题悬而未决：</p>
+<div class="card"><b>核心问题：</b>这些设计选择能否被<b>独立优化</b>？还是说它们之间存在强烈交互、必须联合搜索？现有的"成功配方"到底是哪个因素在起作用，我们其实并不清楚。</div>
+<p>本文给出的答案：在固定计算预算下，作者首次把<b>专家粒度</b>与<b>总专家数</b>彻底解耦来扫描，发现绝大多数旋钮其实可以独立设置，设计空间远比想象的简单。三大贡献：</p>
+<ul>
+<li><b>解耦专家数量与粒度：</b>2000+ 实验（10M–6.6B 总参数）证明，即便激活/总专家参数比高达 <b>128</b>，性能仍随总 MoE 参数<b>单调提升</b>。</li>
+<li><b>灵活性几乎无益：</b>异构专家池与"共享通才专家"都不能超过一个配置良好的同构 MoE，共享专家甚至<b>持续有害</b>。</li>
+<li><b>简化路由设计：</b>负载均衡在合理范围内对质量很鲁棒；唯一稳定的小增益来自 <b>dropless（无丢弃）路由</b>。</li>
+</ul>
+
+<h2 id="method">2 · MoE 设计空间与定义</h2>
+<div class="figure-box">
+  <img src="images/fig01_moe_layer.png" alt="MoE layer diagram">
+  <div class="caption"><b>Figure 1.</b> 一个 MoE Transformer 层的结构。token 先经过共享的 Self-Attention，再由 <b>MoE Router</b> 计算它与每个专家的亲和度（图中下方两个直方图：左侧在"专家集 1"里选中红色 0 号，右侧在更细粒度的"专家集 2"里选中 0 号和 5 号），被激活的 FFN 输出按路由权重加权求和（顶部 "+"）。本文在标准<b>同构</b>层（n 个相同粒度 g 的专家、激活 k 个）之外，引入两类灵活配置：<b>异构</b>层（专家集 1 与专家集 2 粒度不同）和<b>通才/共享专家 G</b>（始终被激活）。这张图正是后文实验所对照的全部"自由度"。</div>
+</div>
+
+<h3 id="concepts">2.1 关键量：粒度、稀疏度、FLOP-match</h3>
+<p><b>专家粒度 (granularity) $g$</b> 定义为专家 FFN 的中间维度相对于稠密 FFN 中间维度的比值：</p>
+<div class="formula">$$g=\frac{\text{专家 FFN 的中间维度}}{\text{稠密 FFN 的中间维度}}$$</div>
+<p>$g=1$ 表示专家与稠密 FFN 等大；$g=\tfrac14$ 表示专家只有稠密 FFN 中间维度的四分之一（即"细粒度"专家）。$g$ 越小，单个专家越小。</p>
+<p><b>FLOP-match（计算对齐）：</b>为了公平比较，所有配置在每步上激活相同的 FFN 参数量。做法是令激活专家数 $k$ 满足：</p>
+<div class="formula">$$k \cdot g = 1 \quad\Longleftrightarrow\quad k = \tfrac{1}{g}$$</div>
+<p>也就是说，专家越小（$g$ 越小），就同时激活越多个专家来补足激活参数——激活参数恒等于一个稠密模型，因此<b>每步 FLOPs 完全可比</b>。</p>
+<p><b>激活稀疏度 (sparsity) $s$</b> 衡量总 FFN 参数超过激活 FFN 参数的倍数：</p>
+<div class="formula">$$s := n \cdot g$$</div>
+<p>其中 $n$ 是总专家数。$s$ 越大，"额外的、未激活的"专家参数越多。它等价于一个<b>内存预算</b>：增大 $s$ 几乎不增加计算，只增加显存。理解全文的关键是：在固定 $s$（固定总参数/显存）下，可以用<b>更多但更小的专家</b>，或<b>更少但更大的专家</b>来达成同一个 $s$——这正是本文要 trade off 的核心维度。</p>
+<div class="card"><b>三个独立旋钮：</b><span class="tag">专家尺寸 g</span><span class="tag">激活专家数 k = 1/g</span><span class="tag">总专家数 n</span>。其中 $k$ 由 $g$ 经 FLOP-match 锁定；$n$ 可独立变动且只增显存不增算力。本文的"slicing & dicing"就是在固定算力下切分这三者。</div>
+
+<h3 id="router">2.2 路由与负载均衡机制</h3>
+<p>最常见的路由是 <b>token choice</b>：每个 token 选亲和度最高的 $k$ 个专家。但路由器天然倾向只用少数专家，因此需要负载均衡。本文比较了三类机制：</p>
+<p><b>(1) 负载均衡辅助损失</b>，以权重 $\alpha$ 加到主损失上：</p>
+<div class="formula">$$\mathcal{L}=\mathcal{L}_{CE}+\alpha\,\mathcal{L}_{\text{aux}},\qquad \mathcal{L}_{LB}=N_E\cdot\sum_{i=1}^{N_E} f_i\cdot P_i$$</div>
+<p>其中 $f_i$ 是被路由到专家 $E_i$ 的 token 比例，$P_i$ 是该专家的总路由概率，$N_E$ 是专家数。该损失惩罚"过度依赖某个专家"。难点在 $\alpha$：太小则无效，太大则压制语言建模目标。</p>
+<p><b>(2) 无损失（loss-free）负载均衡：</b>DeepSeek 提出，给每个专家加一个<b>偏置项</b>，每步以步长 $\gamma$ 朝更均衡的方向微调，避开了调 $\alpha$ 的麻烦，但引入了新的归纳偏置（$\gamma$ 需要调）。</p>
+<p><b>(3) Dropless（无丢弃）路由：</b>当某专家收到的 token 超过其"容量"时，传统做法是丢弃溢出 token（或设 capacity factor=2 留冗余，但浪费一半容量）。Dropless 用块稀疏（block-sparse）矩阵运算保证<b>没有任何 token 被丢弃</b>。</p>
+<p>此外还有 Zoph 等提出的 <b>Router Z-loss</b>，用于缓解大模型路由训练的不稳定（在预备实验中考察）：</p>
+<div class="formula">$$\mathcal{L}_{RZ}(x)=\frac{1}{B}\sum_{i=1}^{B}\Big(\log\sum_{j=1}^{N_E}\exp(x_j^{(i)})\Big)^{2}$$</div>
+
+<h2 id="exp">3 · 实验设置</h2>
+<p>模型架构参考 Muennighoff 等 (2025)，激活参数从约 10M 到 300M（架构记为 10M/20M/.../300M），总参数从 10M 到 6.6B。所有配置在每步上<b>对齐激活 FFN 参数</b>，再用激活稀疏度 $s$ 对比总参数。</p>
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">2000+</div><div class="label">预训练实验数</div></div>
+  <div class="metric-card"><div class="value">6.6B</div><div class="label">最大总参数</div></div>
+  <div class="metric-card"><div class="value">128</div><div class="label">最高激活/总参数比</div></div>
+  <div class="metric-card"><div class="value">~41.5K</div><div class="label">GPU 小时（含预备）</div></div>
+</div>
+<ul>
+<li><b>扫描范围：</b>粒度 $g\in\{1,\tfrac12,\tfrac14,\tfrac18,\tfrac1{16},\tfrac1{32},\tfrac1{64}\}$，总专家数 $n\in\{2,4,...,1024\}$，由此 $s\in\{2,4,...,128\}$。</li>
+<li><b>训练数据：</b>Muennighoff 等开源的混合语料（网页 DCLM、代码 StarCoder、数学 OpenWebMath、百科 Wikipedia 等）；token-to-激活参数比约 <b>20</b>（遵循 Chinchilla 配方）。</li>
+<li><b>评测指标：</b>在多域留出验证集上的<b>宏平均交叉熵损失（越低越好，下文图中 ↓）</b>，覆盖 Paloma（C4、Pile、WikiText-103、Dolma 6 域、M2D2、ICE）；下游任务含 BoolQ、HellaSwag、MMLU。5 个随机种子下语言建模损失的标准差近乎为 0，故曲线高度可信。</li>
+</ul>
+
+<h2 id="r1">4 · 核心发现一：把"未激活参数"堆满，性能单调变好</h2>
+<p>这是全文最重要的结论。在 FLOP-match 下，无论通过<b>把专家做大</b>（固定 n，增大 g）还是<b>增加专家个数</b>（固定 g，增大 n），只要总参数变多，性能就持续提升——而且在作者观察的范围内<b>看不到拐点</b>，即"再多也不会变差"。</p>
+
+<div class="figure-box">
+  <img src="images/fig02a_fixed_n.png" alt="Fixed total experts, vary granularity" style="max-width:620px">
+  <div class="caption"><b>Figure 2a（固定总专家数 n）。</b>横轴=专家粒度 $g$（从 $\tfrac1{64}$ 到 $1$），纵轴=语言建模平均损失（↓ 越低越好），每条彩线对应一个固定的总专家数 $n$（图例 2→1024），灰色虚线是稠密基线（5.7）。两点关键：① 颜色越偏"冷/绿"（$n$ 越大）的线整体越靠下——总专家越多越好（512、1024 在最底部）；② <b>沿单条线向右</b>（专家变大）损失下降，但到 $g=1$ 时普遍出现<b>上翘回退</b>（如蓝色 $n{=}2$、品红 $n{=}16$ 末端翘起），这正是"Top-1 路由（只激活 1 个专家）反而变差"的现象。</div>
+</div>
+
+<div class="figure-box">
+  <img src="images/fig02b_fixed_g.png" alt="Fixed granularity, vary total experts" style="max-width:620px">
+  <div class="caption"><b>Figure 2b（固定专家粒度 g）。</b>横轴改为<b>总专家数</b>（2→1024），纵轴仍是平均损失（↓），每条线对应一个固定粒度 $g$。所有线都<b>随总专家数增加而稳步下降</b>，且没有触底反弹——这是"增加未激活专家参数即可改善性能"的直接证据。注意黄色 $g{=}1$ 线最高（最差）且很短，再次说明粗到 $g{=}1$（Top-1）不可取。</div>
+</div>
+
+<div class="figure-box">
+  <img src="images/fig02c_optimal.png" alt="Fixed sparsity, optimal tradeoff" style="max-width:620px">
+  <div class="caption"><b>Figure 2c（固定激活稀疏度 s = 最优切分）。</b>横轴=粒度 $g$，纵轴=平均损失（↓），每条线对应一个固定的 $s$（即固定总参数/显存预算）。在每个预算下曲线呈<b>浅 U 形</b>，存在一个最优粒度（多落在 $g\in[\tfrac18,\tfrac14]$ 区间）。随着 $s$ 增大（如黑色 $s{=}128$ 落到最底部），曲线整体下移、但<b>最优粒度几乎不动</b>——这意味着：要扩大模型应主要靠<b>加专家数 $n$</b>，而不是把专家做大。最右端 $g{=}1$ 一律急剧上翘到稠密线附近。</div>
+</div>
+
+<div class="highlight">
+<b>为什么不是"粒度本身"带来增益？</b>作者做了关键的反证实验：固定 $s=1$（即不增加任何参数，只把 FFN 切成 2/4/8 份），结果<b>全部劣于稠密基线</b>。可见 MoE 的好处来自"稀疏激活带来的额外参数"，而非单纯把 FFN 切碎。
+</div>
+
+<div class="figure-box">
+  <img src="images/fig03_granularity_alone.png" alt="Granularity alone underperforms" style="max-width:620px">
+  <div class="caption"><b>Figure 3.</b> "粒度本身不是增益来源"的反证（§3.1）。顶部两条<b>黑色虚/点线</b>是 $s{=}1$ 的配置——把稠密 FFN 切成 2/4/8 个小模块但<b>不增加总参数</b>（黑虚线=可学习路由器，黑点线=均匀伪路由），二者都停在<b>稠密基线 5.7 之上</b>（即更差）。下方各彩色线是 $s\ge 2$ 的正常 MoE（额外参数带来稀疏），随预算增大不断走低。对比之下：只切碎、不加参数 → 反而变差；真正的功臣是"稀疏激活的额外参数"。</div>
+</div>
+
+<h2 id="r2">5 · 核心发现二：最优专家尺寸几乎只取决于"激活参数量"</h2>
+<p>把 Figure 2c 的最优点连起来看，一个非常实用的规律浮现：<b>最优专家粒度对总参数几乎不敏感，只由激活参数规模决定</b>。具体地：</p>
+<table>
+<tr><th>激活参数规模</th><th>最优专家粒度 $g$</th><th>随 $s$ 增大的变化</th></tr>
+<tr><td>50M</td><td>约 $[\tfrac14,\tfrac12]$</td><td>$s\ge 32$ 时移向 $\tfrac12$</td></tr>
+<tr><td>110M</td><td>约 $[\tfrac18,\tfrac14]$</td><td>大 $s$ 时移向 $\tfrac14$</td></tr>
+<tr><td>300M</td><td>$\le \tfrac18$</td><td>基本稳定</td></tr>
+</table>
+<p>含义：模型越大（激活参数越多），最优专家应当<b>越细</b>；而一旦固定了激活规模，再怎么加显存（增大 $s$），都应该靠<b>多堆专家个数</b>来实现，专家本身的尺寸近乎是个常数。这把"超参搜索"压缩成了一条几乎一维的规则。</p>
+<div class="card"><b>Top-1 路由为什么差？</b>当 $g=1$ 时 $k=1$，每个 token 只激活一个专家，路由权重矩阵每次只有一行被梯度更新，各行之间无法"相互校准"，因此 $g$ 从 $\tfrac12$ 增到 $1$ 时性能反而回退。结论与 Zoph 等 (2022) 一致：<b>至少激活 2 个专家</b>。</div>
+
+<h2 id="r3">6 · 核心发现三：异构专家与共享专家——灵活性几乎无益</h2>
+
+<h3>6.1 异构专家：只是在同构配置之间插值</h3>
+<p>作者在一层里放两个专家池 $(n_1,n_2)$，平分激活与总参数，尝试 $(g_1,g_2)\in\{(\tfrac12,\tfrac14),(\tfrac14,\tfrac18),(\tfrac18,\tfrac1{16})\}$ 等组合。结果异构配置<b>落在两个最接近的同构配置之间</b>，没有任何"1+1>2"的协同。</p>
+<div class="figure-box">
+  <img src="images/fig04_heterogeneous.png" alt="Heterogeneous experts interpolate" style="max-width:620px">
+  <div class="caption"><b>Figure 4.</b> 异构专家不带来增益（§3.2）。横轴=稀疏度 $s$，纵轴=平均损失（↓）。<b>实线=同构</b>（单一专家数，如 32、64），<b>虚线=异构</b>（两池混合，如 "32,64"）。每条异构虚线都<b>夹在</b>对应的两条同构实线之间（如橙色 "32,64" 介于 "32" 与 "64"），即异构只是在同构之间线性插值，没有超越。所有配置都随 $s$ 增大而下降并优于稠密（顶部灰虚线 5.7）。</div>
+</div>
+
+<h3>6.2 共享专家（generalist）：持续轻微有害</h3>
+<p>"共享专家/通才"是对所有输入都激活的专家（DeepSeek 等架构的标配）。作者在大量配置上加入粒度 $\tfrac12/\tfrac14/\tfrac18$ 的通才，结论是：<b>加任何通才都只会得到相当或更差的性能</b>。原因之一是通才会占用宝贵的激活参数预算，挤掉真正起作用的路由专家。</p>
+<div class="figure-box">
+  <img src="images/fig05_generalist.png" alt="Generalist degrades performance">
+  <div class="caption"><b>Figure 5.</b> 加入通才持续损害同构 MoE 性能（§3.2）。四个子图分别对应专家粒度 $g=\tfrac1{16},\tfrac18,\tfrac14,\tfrac12$；横轴=稀疏度，纵轴=平均损失（↓）。<b>蓝线 "None"（无通才）</b>在每个子图都延伸到最右（最高稀疏度、最低损失）；而加了通才的彩色线（$\tfrac18/\tfrac14/\tfrac12$）始终<b>压在蓝线之上或重合，从不更低</b>，且因通才吃掉激活预算而无法到达更高稀疏度。直观结论：共享专家有害无益。</div>
+</div>
+
+<h2 id="r4">7 · 核心发现四：路由消融——只有 dropless 稳定有效</h2>
+
+<h3>7.1 Dropless 路由：小而稳定的增益</h3>
+<div class="figure-box">
+  <img src="images/fig06_dropless.png" alt="Dropless beats default routing" style="max-width:620px">
+  <div class="caption"><b>Figure 6.</b> Dropless 路由优于默认（会丢 token）路由（§3.3）。横轴=粒度，纵轴=平均损失（↓），<b>同色=同一稀疏度</b>，<b>虚线=default（允许丢弃）</b>，<b>实线=dropless</b>。每条虚线都<b>高于（差于）</b>同色实线——尤其在低稀疏度（如橙色 $s{=}2$ 虚线飙到 5.9–6.2，而实线仅约 5.65–5.7），因为专家少、单专家负载高、丢弃更频繁。增益虽小但跨尺度一致；仅在最大 $n{=}1024$ 时 default 才追平 dropless（此时平均负载降低、丢弃概率下降）。</div>
+</div>
+
+<h3>7.2 负载均衡：合理区间内影响很小，但极端值会坏事</h3>
+<p>作者扫了负载均衡损失权重 $\alpha_{LB}\in\{10^{-4},10^{-2}\}$ 与无损失偏置 $\gamma\in\{0,10^{-3}\}$。结论：<b>大多数设置在 $n\le 128$ 时表现相当</b>；最差的是"低权重 $\alpha_{LB}{=}10^{-4}$ 且 $\gamma{=}0$"（均衡力度不足）。值得警惕的是：在<b>大 $n$（$\ge 512$）</b>时，无损失偏置 $\gamma{=}10^{-3}$ 会损害性能——此时按 $\gamma$ 固定步长调偏置太粗，需要随 $n$ 调小。</p>
+<div class="figure-box">
+  <img src="images/fig07a_lb_gxs.png" alt="Load balancing sweep gxs">
+  <div class="caption"><b>Figure 7a.</b> 负载均衡需正确调参（§3.3，按粒度展开）。2×2 子图：<b>列</b>为损失权重 $\alpha_{LB}{=}10^{-4}$（左）/ $10^{-2}$（右），<b>行</b>为偏置 $\gamma{=}0$（上）/ $10^{-3}$（下）；横轴=粒度，纵轴=平均损失（↓），颜色=稀疏度。右上角（$\alpha_{LB}{=}10^{-2},\gamma{=}0$）能触及最低损失（黑色 $s{=}128$ 低至 ~5.15）；而在大 $n$ 配合 $\gamma{=}10^{-3}$ 的设置中，高稀疏度曲线明显被抬高或缺失，说明无损失机制在大 $n$ 下"过粗"。在 $n\le 128$ 范围内各设置差异不大。</div>
+</div>
+<div class="figure-box">
+  <img src="images/fig07b_lb_gxn.png" alt="Load balancing sweep gxn">
+  <div class="caption"><b>Figure 7b.</b> 同一负载均衡扫描，但横轴换成<b>总专家数</b>（粒度固定视角）。同样可见：随专家数增加损失普遍下降，但右下角"$\alpha_{LB}{=}10^{-2}$ 且 $\gamma{=}10^{-3}$"组合在大专家数端出现性能损伤，印证<b>偏置 $\gamma$ 在高 $n$ 时必须调小</b>，否则会与语言建模目标相互干扰。</div>
+</div>
+
+<h2 id="analysis">8 · 深度分析与对比</h2>
+<p><b>与 DeepSeek 配方的对比：</b>DeepSeek 把"细粒度专家 + 共享专家 + 改进路由"打包成一套强配方，但其方法把<b>专家粒度与专家数绑定</b>。本文的严格解耦网格搜索给出不同结论：推荐<b>更粗</b>的专家（约 $g=\tfrac14$），且<b>共享专家无益</b>。Muennighoff 等 (2025) 的单尺度消融也独立验证了"共享专家有害"。</p>
+<p><b>与"固定最优值"主张的对比：</b>Zhao 等 (2025) 认为共享专家必不可少、且存在一个固定的最优激活专家数（约 7）。本文用跨尺度数据反驳：这些"最优值"是<b>随尺度变化</b>的，并非固定常数；把它们当常数很可能是<b>对特定 regime 过拟合</b>的产物（高自由度拟合的 scaling law 往往外推不可靠）。</p>
+<div class="highlight"><b>什么时候 MoE 才赢稠密？</b>在 50M 及以上激活规模，即便很差的 MoE 配置也常常优于稠密基线；但在 10M/20M 极小规模，MoE 在所有设置下都<b>打不过</b>稠密。作者验证这是<b>数据与参数预算交互</b>的结果而非模型大小本身：给 10M/20M 喂 20×/5× 数据后，其表现逼近算力相近的 50M 模型。</div>
+
+<h2 id="limit">9 · 局限性与展望</h2>
+<ul>
+<li><b>规模上限：</b>最大 6.6B 总参数、300M 激活参数，仍远小于前沿 MoE LLM（百亿~万亿级）。"看不到拐点"是否在更大规模依旧成立有待验证——作者也承认<b>可能存在一个临界点</b>，只是在本文范围内未观测到。</li>
+<li><b>Chinchilla 训练比例：</b>所有模型按 token/激活参数 ≈ 20 训练；在严重欠训/过训（如 LLM 常用的远超 20×）下，最优粒度规律是否平移未知。</li>
+<li><b>异构空间被强约束：</b>因组合爆炸，异构只测了"两池、各占一半"的窄设置，更自由的异构拓扑未必同样"只插值"。</li>
+<li><b>指标以交叉熵为主：</b>语言建模损失方差近零、结论稳健，但下游任务存在更大方差，端到端能力的结论需谨慎。</li>
+</ul>
+
+<h2 id="sum">10 · 核心总结：一个被简化的实践配方</h2>
+<div class="card">
+<p><b>作者给出的极简 MoE 优化配方（按优先级）：</b></p>
+<ol>
+<li><b>根据激活参数规模设定专家尺寸（粒度 $g$）</b>——在本文设置中约取 $g\approx\tfrac14$，模型越大可越细；至少激活 2 个专家（别用 Top-1 / $g=1$）。</li>
+<li><b>把总专家数 $n$ 加到内存预算的上限</b>——在固定算力下，多堆未激活专家几乎稳赚不赔。</li>
+<li><b>只需最小化地扫负载均衡</b>——在合理区间内影响很小；启用 <b>dropless 路由</b>拿稳定小增益；大 $n$ 时记得把无损失偏置 $\gamma$ 调小。</li>
+<li><b>不要异构、不要共享专家</b>——它们不带来增益，共享专家还会持续轻微有害。</li>
+</ol>
+</div>
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">g ≈ 1/4</div><div class="label">推荐专家粒度（粗）</div></div>
+  <div class="metric-card"><div class="value">max n</div><div class="label">总专家数堆到显存上限</div></div>
+  <div class="metric-card"><div class="value">k ≥ 2</div><div class="label">至少激活 2 个专家</div></div>
+  <div class="metric-card"><div class="value">dropless</div><div class="label">唯一稳定的路由增益</div></div>
+</div>
+<p>一句话：<b>专注于"专家数量 × 专家粒度"这两个旋钮，其他都可以放心简化。</b></p>
+
+<h2 id="src">资源链接</h2>
+<ul>
+<li>论文（arXiv）：<a href="https://arxiv.org/abs/2605.11689">arXiv:2605.11689 — Slicing and Dicing: Configuring Optimal Mixtures of Experts</a></li>
+<li>PDF：<a href="https://arxiv.org/pdf/2605.11689">https://arxiv.org/pdf/2605.11689</a></li>
+<li>代码与数据：<a href="https://github.com/hadasah/slicing_and_dicing">github.com/hadasah/slicing_and_dicing</a></li>
+<li>训练数据/架构来源：Muennighoff et al. (2025)；训练比例遵循 Chinchilla (Hoffmann et al., 2022)。</li>
+</ul>
+<p class="subtitle" style="margin-top:30px">本报告为中文深度解读，图片均取自论文官方 arXiv 源文件（同构 MoE 50M 激活规模主图），仅作学术解读用途。</p>
+
+</div>
+</body>
+</html>

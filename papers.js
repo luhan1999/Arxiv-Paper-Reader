@@ -89,6 +89,13 @@ window.SITE = {
       tags: ["Shared Expert", "MoE", "综述"],
     },
 
-    /* ---------------- Daily Paper（暂空，展示空状态） ---------------- */
+    /* ---------------- Daily Paper ---------------- */
+    {
+      title: "Slicing and Dicing：配置最优的专家混合 (MoE)",
+      category: "daily", date: "2026-06", source: "arXiv:2605.11689", authors: "Slicing and Dicing 作者团队",
+      path: "Slicing-and-Dicing-Optimal-MoE/index.html",
+      summary: "首个系统性、大规模解耦的 MoE 设计空间研究（<b>2000+ 预训练实验</b>）。把专家粒度、激活比例、共享专家、路由等维度逐一切开做受控消融，给出在固定算力下配置最优 MoE 的经验法则与 scaling 趋势。",
+      tags: ["MoE", "Scaling Law"],
+    },
   ],
 };
