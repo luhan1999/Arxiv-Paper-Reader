@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAI-Thinking-1：构建一台"爬山机器" 深度解读</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:250px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px;border:0;padding:0}
+.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}
+.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}
+.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:250px;max-width:880px;padding:48px 44px 120px}
+h1{font-size:27px;line-height:1.35;margin:0 0 6px;color:#000}
+.subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+h2{font-size:21px;color:#000;margin:40px 0 12px;padding-bottom:6px;border-bottom:2px solid #000}
+h3{font-size:16px;color:#000;margin:24px 0 8px}
+p{margin:0 0 12px;text-align:justify}
+.card,.highlight{border:1px solid var(--line);padding:16px 18px;margin:16px 0;background:#fff}
+.highlight{background:#f7f7f2;border-left:3px solid #000}
+.figure-box{border:1px solid #ccc;padding:14px;text-align:center;margin:20px auto;background:#fff}
+.figure-box img{max-width:100%;height:auto}
+.caption{font-size:12px;color:#444;margin-top:8px;line-height:1.65;font-style:italic;text-align:left}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left}
+td{border-bottom:1px solid #ddd;padding:7px 9px;vertical-align:top}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
+.metric-card{border:1px solid #ccc;text-align:center;padding:14px}
+.metric-card .value{font-size:22px;font-weight:700;color:#000}
+.metric-card .label{font-size:11px;color:#666;margin-top:4px}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto}
+.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px;border-radius:2px}
+.def{background:#f4f6f8;border-left:3px solid #2c5777;padding:14px 16px;margin:14px 0}
+.def .term{font-weight:700;color:#1a3a52}
+code{background:#eef0f2;padding:1px 5px;font-size:13px;border-radius:2px;font-family:ui-monospace,Menlo,monospace}
+a.ref{color:#1a4d8f;text-decoration:none}a.ref:hover{text-decoration:underline}
+.lead{font-size:16px;border-left:3px solid #000;padding-left:16px;color:#333;font-style:italic;margin:18px 0}
+ul{margin:8px 0 14px}li{margin:4px 0}
+.small{font-size:12px;color:#666}
+.win{color:#2c5c2c;font-weight:700}.lose{color:#7a2c2c;font-weight:700}
+@media(max-width:900px){.toc-sidebar{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line)}.main{margin-left:0;padding:24px 20px 80px}}
+</style>
+</head>
+<body>
+<nav class="toc-sidebar">
+  <h2>目录</h2>
+  <a href="#intro">引言 · 爬山机器</a>
+  <a href="#spec" class="sub">核心规格与成绩</a>
+  <a href="#principles" class="sub">三大设计原则</a>
+  <a href="#pretrain">2 · 预训练 (MAI-Base-1)</a>
+  <a href="#arch" class="sub">架构：LatentMoE</a>
+  <a href="#scaling" class="sub">缩放方法：EG 与 ladder</a>
+  <a href="#data" class="sub">数据：30T 纯人类</a>
+  <a href="#stability" class="sub">稳定性与精度</a>
+  <a href="#rl">3 · 强化学习爬升</a>
+  <a href="#rl-algo" class="sub">GRPO 两项改造</a>
+  <a href="#rl-reward" class="sub">奖励设计</a>
+  <a href="#rl-distill" class="sub">自蒸馏与专家</a>
+  <a href="#eval">4 · 评测</a>
+  <a href="#safety">5 · 安全红队</a>
+  <a href="#infra">6 · 集群与基础设施</a>
+  <a href="#takeaways">核心总结</a>
+</nav>
+
+<main class="main">
+<h1>MAI-Thinking-1：构建一台"爬山机器"</h1>
+<div class="subtitle">Building a Hill-Climbing Machine · The Microsoft AI Team · 2026 技术报告（109 页）深度解读<br>35B active / 1T total MoE · 从零训练 · 无第三方蒸馏 · 纯企业级数据</div>
+
+<section id="intro">
+<h2>引言 · 把模型研发变成"爬山"</h2>
+<p>这份报告的核心论点颇具颠覆性：<strong>AI 的真正进步不来自某一个模型的突破，而来自持续在当前最优模型之上迭代提升的能力。</strong>因此微软 AI（MAI）团队把模型研发重新定义为一个<strong>系统级优化问题</strong>，其解决方案被命名为"<strong>hill-climbing machine（爬山机器）</strong>"——一套把数据管线、训练基础设施、强化学习环境与奖励、评测套件、安全测试整合在一起、将模型开发转化为<strong>经验性优化闭环</strong>的集成流程。</p>
+<div class="lead">MAI-Thinking-1 是这台爬山机器产出的第一个模型。它最反主流之处在于：完全从零训练、不从任何第三方模型蒸馏、只用干净的人类生成数据——而当下绝大多数推理模型都依赖蒸馏来快速获得能力。</div>
+
+<h3 id="spec">核心规格与头条成绩</h3>
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">35B/1T</div><div class="label">active / total 参数（精确 34.7B/962B）MoE</div></div>
+  <div class="metric-card"><div class="value">30T</div><div class="label">预训练 tokens（纯人类数据）</div></div>
+  <div class="metric-card"><div class="value">256K</div><div class="label">最大上下文长度</div></div>
+  <div class="metric-card"><div class="value">97.0%</div><div class="label">AIME 2025</div></div>
+  <div class="metric-card"><div class="value">94.5%</div><div class="label">AIME 2026</div></div>
+  <div class="metric-card"><div class="value">87.7%</div><div class="label">LiveCodeBench v6</div></div>
+  <div class="metric-card"><div class="value">52.8%</div><div class="label">SWE-Bench Pro</div></div>
+  <div class="metric-card"><div class="value">8K</div><div class="label">GB200 GPU 预训练</div></div>
+</div>
+
+<div class="figure-box">
+  <img src="images/fig01_rl_climb.png" alt="RL climb curves">
+  <div class="caption"><b>Figure 1.</b> MAI-Thinking-1 在强化学习阶段的性能爬升。三个子图横轴均为训练步数（<strong>对数刻度</strong>），纵轴为 pass@1（取相邻 3 个 checkpoint 平均）。<strong>左/中（STEM Climb）</strong>：AIME 2025 从 ~15% 一路爬到 ~95%，LiveCodeBench v6 hard 子集从 ~22% 爬到 ~75%，两条曲线在对数横轴上近似直线——即"<strong>log-linear（对数线性）爬升</strong>"，且持续数千步不饱和。<strong>右（Agentic Climb）</strong>：SWE-bench Verified 从 ~34% 爬到 ~74%。这张图是全报告的"封面论点"：一套 RL 配方能维持长达数千步的稳定提升。</div>
+</div>
+</section>
+
+<section id="principles">
+<h3>三大设计原则</h3>
+<div class="card">
+<p><strong>① Capabilities should be learned, not inherited（能力应被习得，而非继承）。</strong> 蒸馏虽快，但模仿来的智能缺乏长期爬升所需的<strong>可操控性（steerability）</strong>与<strong>鲁棒性（robustness）</strong>。因此明确放弃从第三方模型蒸馏，RL 从一个<em>从未见过任何 reasoning trace</em> 的 checkpoint 开始，CoT 推理能力完全从零学起。</p>
+<p><strong>② Simplicity is sustainable（简单才可持续）。</strong> 偏好简单可扩展的配方、干净可信的数据、透明的基础设施。</p>
+<p><strong>③ Scientific rigor avoids shortcuts（科学严谨避免捷径）。</strong> 每个决策都必须通过 <strong>data-driven ladders（数据驱动的缩放梯子）、ablations、evaluations</strong> 来验证——这条原则贯穿全篇，是"爬山机器"的方法论内核。</p>
+</div>
+</section>
+
+<!-- ============ PRETRAINING ============ -->
+<section id="pretrain">
+<h2>2 · 预训练：MAI-Base-1</h2>
+<p>基座模型 MAI-Base-1 是一个 35B-active / 1T-total 稀疏 MoE，在 Azure 内 <strong>8K 张 GB200 GPU</strong> 上用自研 <strong>YOLO 框架</strong>从零训练，主预训练 30T tokens，再加两阶段 mid-training 共 3.55T tokens。</p>
+
+<h3 id="arch">架构：交错注意力 + LatentMoE</h3>
+<div class="figure-box">
+  <img src="images/fig02_architecture.png" alt="MAI-Base-1 architecture">
+  <div class="caption"><b>Figure 2.</b> MAI-Base-1 架构总览。<strong>左：</strong>Transformer body 的整体布局——每个 block 是"Norm → (Local/global) Attention → Norm → 残差"接"Norm → Sparse MoE (8/512) → Norm → 残差"，整体 Repeat ×(L/2)，即<strong>高稀疏 MoE 层与注意力层交错</strong>。<strong>右：</strong>单个 MoE 层的内部——输入经 Down Proj 压缩进潜空间，Router 决定 Dispatch 到 512 个专家中的 top-8（图中 $e_1$、$e_{392}$ 高亮为被激活），再 Combine、Up Proj 还原。这就是论文的 <strong>LatentMoE</strong>：dispatch 前做共享降维（压缩 2×），在压缩潜空间里路由，显著降低 MoE 的通信与计算开销。</div>
+</div>
+
+<p>关键架构选择（均经 EG 消融验证）：</p>
+<ul>
+<li><strong>78 层，hidden 6656</strong>，架构由层数 $L$ 单参数确定：$D = L\times256/3$。</li>
+<li><strong>5:1 交错注意力</strong>（Gemma 3 式）：5 层局部注意力（滑窗 512，RoPE base 10000）配 1 层全局注意力（全局层用 <strong>NoPE</strong> 无位置编码）。GQA 8 个 KV 头、per-head dim 128，对 Q/K 施加 RMSNorm。</li>
+<li><strong>FFN 交替</strong>：高稀疏 MoE 层与零稀疏 dense FFN 交错（首层为 dense），均用 SwiGLU。</li>
+<li><strong>LatentMoE</strong>：512 专家 top-8、softmax gating，全 <strong>dropless</strong>，全局 batch 负载均衡（关键在跨 DP worker/micro-batch 的<em>全局聚合</em>而非 loss 类型）。</li>
+<li>RMSNorm 置于残差前的输入与输出端，无 bias，输入输出 embedding 权重绑定；tokenizer 用 o200k_base（词表 200,019）。</li>
+</ul>
+
+<h3 id="scaling">缩放方法学：Efficiency Gain 与 scaling ladder</h3>
+<div class="def"><span class="term">Efficiency Gain（EG，效率增益）</span><br>量化某个设计选择"省了多少算力"的核心指标。先对 baseline 拟合 scaling law $\mathcal{L}=A\,C^{-\alpha}+E$（loss 关于算力 $C$），再定义 $\text{EG}=f^{-1}(\mathcal{L}')/C'$：即达到新模型的 loss $\mathcal{L}'$，baseline 需要多少算力，除以新模型实际用的算力 $C'$。<strong>EG = 1.3 意味着 baseline 要多花 30% 算力才能追平。</strong>论文进一步区分 $\text{EG}_{\text{FLOPs}}$（解耦硬件利用率）与 $\text{EG}_{\text{Time}}$（含实际 wall-clock）。</div>
+
+<div class="figure-box">
+  <img src="images/fig03_sparsity_scaling.png" alt="Sparsity scaling efficiency gains">
+  <div class="caption"><b>Figure 3.</b> 稀疏度的缩放效率增益。6 个子图分别为 General / STEM / Math / Code / Multilingual / Weighted Average 六类任务，横轴为 FLOPs（$10^{20}\sim10^{21}$），纵轴为 $\text{EG}_{\text{FLOPs}}$。三条线对应 <strong>top-8/256（青）、top-8/512（橙）、top-8/1024（黄）专家</strong>，基线锚定在 256 专家（≈1.0）。共同趋势：<strong>专家数越多 EG 越高且随算力不降反升</strong>——Code 子图最陡（1024 专家达 1.392 且仍在爬升），多语言最平（1.129）。这张图是"增加稀疏度能持续带来健康提升"的核心证据，最终团队选了 top-8/512 来平衡质量与训练/推理效率。</div>
+</div>
+
+<p>方法：用 scaling ladder（L12–L78，固定 TPP）做架构消融，消融在 Chinchilla 最优区 100–200 TPP，主跑则<strong>over-train 到 500–1000 TPP</strong>。一个反直觉的发现是 <strong>rank invariance 假说不成立</strong>——某个数据配方在小规模占优，到 23B 规模会被另一配方反超（因两个低多样性 STEM 源在大规模失效），所以所有决策都必须按 ladder 验证其<em>缩放性</em>而非单点表现。</p>
+
+<h3 id="data">数据：30T 纯人类、零合成</h3>
+<p>这是 MAI-Thinking-1 最有特色的部分。五大源（Web HTML、Web PDF、GitHub Code、Books/Journals），全程 in-house 处理，<strong>不用任何 LLM 合成数据，主动剔除采集源中的 AI 生成内容</strong>，不用开源训练集，并对常见 ML 数据库去污染。各源知识截止日期不同（Web HTML 2025/9、Web PDF 2025/12、GitHub Code 2025/6、Books 2026/3）。完整占比见下文 Table 5。</p>
+<p>去重与去污染极其严格：MinHash LSH 模糊去重（阈值 0.8）、Qwen3-Embedding-0.6B 语义去重、跨数据集 global drop-order 去重；去污染移除 huggingface.co 及镜像、20-gram 模糊去重相似度阈值 80%、并自建私有 benchmark。评测统一用 <strong>NLL / bits-per-byte（BPB）</strong>而非多选题（teacher-forcing 更鲁棒、成本低），聚合权重 $\text{Target}=0.5\times\text{Code}+0.175\times\text{STEM}+0.175\times\text{Math}+0.1\times\text{General}+0.05\times\text{Multilingual}$。</p>
+
+<h4 style="margin:22px 0 6px;font-size:14.5px">如何科学地"选配方"：数据混合的帕累托前沿</h4>
+<p>占比表只是<em>结果</em>，论文真正的方法论贡献在于<strong>怎么从数百个异构数据源里搜出这套配比</strong>。这是"爬山机器"在数据侧的体现——把"选数据"也变成一个可量化、可缩放验证的优化问题，而非靠经验拍脑袋。核心难点有六个：①<strong>效用难定义</strong>（无法对每个候选配方都跑完整后训练）；②<strong>搜索空间巨大</strong>（数百源的组合空间无法穷举）；③<strong>尺度相关</strong>（某源在小模型有用、大模型未必）；④<strong>跨源交互</strong>（数据源互为补充又互相替代，不能独立评估单源价值）；⑤<strong>多 epoch 效应</strong>（高质量但小的数据集在长训练下会被反复消费直至过拟合）；⑥<strong>算力成本</strong>（训练大量配方模型本身极贵）。</p>
+
+<div class="figure-box">
+  <img src="images/fig05_data_mixing.png" alt="Data mixing Pareto frontier">
+  <div class="caption"><b>Figure 5.</b> 数据混合的帕累托前沿（一个示意例）。在 <strong>3 个模型尺度（131M / 933M / 3B）</strong>上、用相同 TPP 从零训练了 <strong>183 个模型</strong>，每个模型喂一种由 Web HTML、Code 和"其它"三类数据按不同比例组成的配方（共 61 种配方）。横轴为 <strong>Web HTML 验证 loss</strong>、纵轴为 <strong>Code 验证 loss</strong>（两者都越小越好）。每个尺度都形成一条 <strong>L 形实线 = 帕累托前沿</strong>：落在前沿上的配方是 Web/Code 两类数据主导的混合，<em>无法在不牺牲一项能力的前提下改进另一项</em>；而偏离前沿（散落在右上方）的点，则是"其它"类数据占比过大的配方。这张图直观说明了核心矛盾：<strong>给定固定算力，一组目标能力会产生多个帕累托最优配方，必须人为给不同能力赋权（即前面的 Target 聚合式）才能选出唯一解。</strong></div>
+</div>
+
+<p>团队的解法是 <strong>forecasting（小尺度预测）+ 分层交替搜索</strong>：先在 L12–L36（760M–4B active）规模训练数千个小模型拟合预测函数，用 Eq.3 聚合成单一分数来全局最小化。但他们发现一个反直觉的坑——<strong>rank invariance 假说（小尺度的配方优劣排序在大尺度保持）并不成立</strong>：早期的 <code>stem-heavy-mix</code> 在小模型胜过 <code>code-heavy-mix</code>，但训练到 23B 规模时被反超（Fig 6），原因是两个高质量但低多样性的 STEM 源——在 stem-heavy 里占 11.8%、code-heavy 里仅 0.3%——对小模型很有用、对大模型因缺乏多样性而失效。这直接导致后续所有数据决策都<strong>必须用 scaling ladder 验证其缩放性</strong>，而非单点表现。最终配方经"局部搜索（固定大类、调子类权重）+ 全局搜索（固定子类构成、调大类权重）"交替优化得到，任一数据集最多重复 <strong>8 epoch</strong> 以防过拟合。</p>
+
+<table>
+<thead><tr><th>Source family</th><th>Unique (T)</th><th>Training (T)</th><th>Mix %</th><th>Avg. Epochs</th></tr></thead>
+<tbody>
+<tr><td>Code</td><td>7.4</td><td>16.4</td><td>54.6</td><td>2.22×</td></tr>
+<tr><td>STEM</td><td>2.2</td><td>4.7</td><td>15.8</td><td>2.17×</td></tr>
+<tr><td>Math</td><td>0.3</td><td>1.6</td><td>5.4</td><td><strong>5.28×</strong></td></tr>
+<tr><td>Books and journals</td><td>0.6</td><td>0.9</td><td>3.1</td><td>1.65×</td></tr>
+<tr><td>PDFs</td><td>2.7</td><td>1.4</td><td>4.7</td><td>0.53×</td></tr>
+<tr><td>Web text</td><td>8.1</td><td>4.5</td><td>14.9</td><td>0.55×</td></tr>
+<tr><td>Multilingual <em>(other)</em></td><td>8.1</td><td>0.5</td><td>1.6</td><td>0.06×</td></tr>
+<tr><td><strong>Total</strong></td><td><strong>29.2</strong></td><td><strong>30.0</strong></td><td><strong>100.0</strong></td><td><strong>1.03×</strong></td></tr>
+</tbody>
+</table>
+<p class="small">Table 5（论文原表）。<em>Unique</em> = 各源去重后的唯一 token 数，<em>Training</em> = 整轮实际消费的 token 数，<em>Avg. Epochs</em> = 两者之比（>1× 即重复采样）。可见 <strong>Code 是绝对主力（54.6%）</strong>，Math 虽只有 0.3T 唯一 token 却被采样 5.28× 至 1.6T，而 Web text / PDF / Multilingual 全程不到 1 遍——8.1T 的多语料只用了 0.5T（0.06×），是被压得最狠的一类。注意 PDF 与 Web 里的 math/stem 内容已被归入对应学科类，不重复计。</p>
+
+<p><strong>Mid-training</strong> 两阶段，偏向 STEM/math（升至 35%）、code 55%，用 Bloom 认知层级（≥Analyze）过滤 PDF，并引入 <strong>memorization-aware epoch capping</strong>（用 NLL&lt;0.01 token 占比代理记忆度，对高记忆源更严格限 epoch）。上下文从 16k → 64k → 256k 扩展，仅 re-pack 不改 mixture。</p>
+
+<h3 id="stability">稳定性、超参与精度</h3>
+<div class="highlight">
+<p><strong>关键稳定 trick：attention 输出零初始化。</strong>把 output RMSNorm 的 gain 设为 0，避免初始时注意力近似均匀池化导致 token 表征坍缩、进而引发 MoE 路由极度不均衡。这个 trick 经 EG 验证有实质质量增益。</p>
+</div>
+<ul>
+<li><strong>优化器</strong>：AdamW（$\beta_1{=}0.95, \beta_2{=}0.925, \epsilon{=}10^{-8}$），weight decay 0.1（attention 0.01、embedding 0.005），grad clip 1.0。</li>
+<li><strong>学习率</strong>：12B token 线性 warmup 后 cosine 从 $2\times10^{-4}$ 衰减到 $2\times10^{-5}$——注意 final/peak = <strong>0.1×</strong> 而非常见的 0.01×，因为更高的终点学习率更利于后续 RL。</li>
+<li><strong>dropout 0.15</strong>（每层输出残差前）：非常规但有正则增益；global batch 134M tokens。</li>
+<li><strong>精度</strong>：BF16 默认 + FP8（E4M3 forward GEMM / E5M2 data-grad），FP8 delayed scaling（1024 步历史），残差流/embedding/router/logits/optimizer 全 FP32，跨精度梯度用<strong>随机舍入</strong>。30T loss 曲线早期有 spike（多与 code 数据 + dropless 专家不均衡相关）但快速恢复，<strong>全程无跳过 batch、无人工干预</strong>。</li>
+</ul>
+<p class="small">架构经 v1–v5 五代协同演进：v2（23B, 4K GPU, MFU 18%→22%）、v3 切 dropless、v4 引入 512 专家 + top-8 + LatentMoE 并扩到 8K GPU、v5 扩到 35B/1T。20+ 项优化使每代 MFU 维持在 20% 以上。</p>
+
+<div class="figure-box">
+  <img src="images/fig11_mfu.png" alt="MFU and EG evolution">
+  <div class="caption"><b>Figure 11.</b> MFU 与 EG 随训练配置的演进（GB200）。<strong>上面板</strong>：浅绿 = MFU 优化前、深绿 = 优化后；左半为 4K GB200、右半为 8K GB200。优化把 MFU 从 16–18% 拉到 20–22%（虚线箭头标出每代提升路径）。<strong>下面板</strong>：相对 v2 baseline 的 EG（粉色条），最终 v5 配置达 <strong>1.69×</strong>（中间过渡态 1.40×）。这张图说明：从 v2 到 v5，靠基础设施优化 + 架构改进，<strong>等价于把有效算力提升了 1.69 倍</strong>。</div>
+</div>
+</section>
+
+<!-- ============ RL ============ -->
+<section id="rl">
+<h2>3 · 强化学习爬升</h2>
+<p>RL 从一个<strong>完全没接触过 reasoning trace</strong> 的 mid-trained checkpoint 出发，CoT 能力从零学起——长期稳定性因此是首要挑战。整体策略见 Figure 12。</p>
+
+<div class="figure-box">
+  <img src="images/fig12_rl_pipeline.png" alt="RL climb pipeline">
+  <div class="caption"><b>Figure 12.</b> RL 爬升的整体流程。从 <strong>Mid-trained Model</strong> 出发，<strong>并行</strong>训练三个 domain-specialist teacher：SWE/Agentic、STEM、Helpfulness & Safety（各自走独立的 climb）。三个 teacher 的 rollout 经 <strong>Trace Distillation SFT（自蒸馏）</strong>合并成一个 <strong>Consolidated Model</strong>，最后做一次轻量的 <strong>Final Climb</strong> 得到 MAI-Thinking-1。这种"先分头专精、再蒸馏合并、最后统一微调"的结构，是在单模型里同时容纳多领域能力的关键。</div>
+</div>
+
+<h3 id="rl-algo">RL 算法：GRPO + 两项关键改造</h3>
+<p>基于 GRPO（Shao et al. 2024）+ token-level policy gradient。advantage 用组内 reward 标准化，在全局 batch 所有 token 上归一化：</p>
+<div class="formula">
+$$\mathcal{J}(\theta)=\mathbb{E}\left[\frac{1}{\sum_i|y_i|}\sum_i\sum_t \min\big(r_{i,t}\,A_i,\ \mathrm{clip}(r_{i,t},1-\epsilon,1+\epsilon)\,A_i\big)\right]$$
+$$r_{i,t}(\theta)=\frac{\pi_\theta(y_{i,t}\mid q,y_{i,&lt;t})}{\pi_{\text{old}}(y_{i,t}\mid q,y_{i,&lt;t})},\qquad A_i=\frac{R_i-\text{mean}(R_{1:G})}{\text{std}(R_{1:G})}$$
+</div>
+<p>其中 $r_{i,t}$ 是重要性采样比，$A_i$ 是组内标准化优势。为维持数千步 log-linear 爬升，加了两项改造：</p>
+
+<div class="def"><span class="term">① Adaptive entropy control（自适应熵控制）</span><br>用一个 integral controller 在线调整 clip 上界的放松量 $k$，把策略熵维持在目标值 $H^*=0.3$，避免熵爆炸或熵坍缩。clip 上界写成 $\mathrm{clip}(r_{i,t},\,1-\epsilon,\,(1-\epsilon)^{-1}+k)$，初始 $k=0$ 使上下界在 log-ratio 空间对称。熵用重要性加权估计，控制器按 $k\leftarrow\mathrm{clip}(k+\delta\cdot\mathrm{sign}(H^*-\hat{H}),0,k_{\max})$ 更新（$\delta{=}0.25, k_{\max}{=}2.5$）。</div>
+
+<div class="figure-box">
+  <img src="images/fig13_entropy_control.png" alt="Adaptive entropy control">
+  <div class="caption"><b>Figure 13.</b> 自适应熵控制的训练动态（约 800 个 RL 步）。<strong>上面板</strong>：观测到的策略熵 $\hat{H}(\pi_\theta)$（青线），从初始 ~0.19 被控制器逐步推高并稳定在目标 $H^*=0.3$（红色虚线）附近。<strong>下面板</strong>：控制器在线调整的放松量 $k$（橙线，取值 0–1）——当熵低于目标时 $k$ 升高放宽上 clip 让策略更激进探索，熵足够时 $k$ 降回收紧。两面板配合展示了这是一个真正的闭环反馈机制，而非固定超参。</div>
+</div>
+
+<div class="def"><span class="term">② Outer ratio clip（外层比率裁剪）</span><br>对 GRPO 故意保留的两个 unclipped 分支再加一层硬外层 clip $\mathrm{clip}(r_{i,t},r_{\min},r_{\max})$（$r_{\max}{=}50$，$r_{\min}$ 不约束），消除灾难性的 gradient-norm 尖峰。类似 dual-clip PPO。</div>
+
+<h3 id="rl-reward">奖励设计</h3>
+<div class="formula">
+$$R(q,y_i)=R_{\text{task}}+w_{\text{lang}}\cdot R_{\text{lang}}-w_{\text{len}}\cdot R_{\text{len}}$$
+$$R_{\text{lang}}(y_i)=\max\big(1-\alpha\cdot n_{\text{non-english}}(y_i),\,0\big),\qquad R_{\text{len}}(y_i)=\rho_q\cdot\frac{|y_i|}{\ell_{\max}}$$
+</div>
+<ul>
+<li><strong>语言一致性</strong> $R_{\text{lang}}$：惩罚 CoT 中的非英文词（$w_{\text{lang}}{=}0.5, \alpha{=}0.005$），因为混合语言 CoT 会引发训练/推理 logprob 分歧。</li>
+<li><strong>难度自适应长度惩罚</strong> $R_{\text{len}}$：与问题 pass rate $\rho_q$ 挂钩——<strong>难题弱惩罚</strong>（允许长推理），<strong>易题强惩罚</strong>（促简洁），$w_{\text{len}}{=}0.25$，到 128k 阶段移除。</li>
+</ul>
+<p><strong>采样</strong>：early-exit 先采 16 个估 pass rate（合格才采满 128），二次过滤去除低方差组；top-p=0.97 并复用 nucleus mask 把界外 token logit 置 $-\infty$ 防 off-policy 发散；长度课程 8k→16k→32k→64k→128k 逐步翻倍。</p>
+
+<h3 id="rl-distill">自蒸馏与三个专家模型</h3>
+<div class="highlight">
+<p><strong>Self-distillation 是长跑爬升的关键。</strong>收集 RL rollout 做 SFT 重启 climb，用于：(a) 从 prompting 切到原生 chat 格式；(b) 崩溃后<em>重置数值</em>（优于回滚 checkpoint，因不稳定性已提前嵌入参数）；(c) 跨 base policy 迭代；(d) 过滤 reward hacking。关键发现：<strong>O(1M) traces 足够匹配 teacher</strong>；含错误答案的 trace 效果相当；后期 checkpoint 的 trace 更重要；<strong>prompt 多样性比每 prompt trace 数更有价值</strong>。</p>
+</div>
+<table>
+<thead><tr><th>专家</th><th>数据与环境</th><th>奖励信号</th></tr></thead>
+<tbody>
+<tr><td><strong>STEM</strong></td><td>5M STEM Mix（最难子集 550k）+ 160k 竞赛代码/17 语言</td><td>SymPy / test case 可验证</td></tr>
+<tr><td><strong>Agentic</strong></td><td>Sandbox 执行环境（SEE，网络隔离）+ ReAct 多步；SWE 从 102M GitHub PR 过滤到 265,617 环境 / 94,044 仓库</td><td>F2P/P2P 测试</td></tr>
+<tr><td><strong>Helpful & Safety</strong></td><td>reward model（cyclic permutation 取 si=5 概率）+ AI judge + verifiable</td><td>lexicographic / gated 聚合</td></tr>
+</tbody>
+</table>
+<p><strong>防 reward hacking</strong>（SWE 三类）：网络隔离防联网搜原 PR、scrub base commit 之后的 git 历史防"time-travel"、grading 前 reset 测试文件并隐藏 hidden test。多奖励聚合用 <strong>lexicographic shaping</strong>（低优先级奖励仅在高优先级打平时生效）+ <strong>gated application</strong>（不安全直接给最低奖励，不再评质量）。</p>
+<p class="small">RL 超参：AdamW $\beta_1{=}\beta_2{=}0.95$，constant lr $10^{-6}$，global batch 7040，128k 最大生成；异步 off-policy，每 5 步更新 inference model，丢弃 >8 次更新陈旧的 rollout。基础设施用 <strong>Rocket</strong> 异步框架（YOLO learner + SGLang inference），最大 job 用 4864 块 GB300（4096 推理 : 768 学习），prefix cache 命中 97–98%。</p>
+</section>
+
+<!-- ============ EVAL ============ -->
+<section id="eval">
+<h2>4 · 评测</h2>
+<p>评测定位清晰：<strong>"全面稳健、第一梯队但不夺冠"</strong>。协议为所有 benchmark 取 4 次运行平均、$T{=}1, p{=}0.97$、256k 上下文。</p>
+
+<h3>数学是真亮点，agentic 编码强、terminal 弱</h3>
+<table>
+<thead><tr><th>Benchmark</th><th>MAI-Thinking-1</th><th>对比</th></tr></thead>
+<tbody>
+<tr><td>AIME 2025</td><td class="win">97.0</td><td>&gt; Sonnet 4.6 (95.6)；Opus 4.6 99.8</td></tr>
+<tr><td>AIME 2026</td><td class="win">94.5</td><td>—</td></tr>
+<tr><td>LiveCodeBench v6</td><td>87.7</td><td>—</td></tr>
+<tr><td>SWE-Bench Pro</td><td class="win">52.8</td><td>≈ Opus 4.6 (53.4)</td></tr>
+<tr><td>SWE-bench Verified</td><td>73.5</td><td>—</td></tr>
+<tr><td>GPQA Diamond</td><td class="lose">84.2</td><td>明显落后其他家 89–93</td></tr>
+<tr><td>Terminal-Bench 2.0</td><td class="lose">46.0</td><td>垫底（Opus 65.4、GPT 5.4 75.1）</td></tr>
+</tbody>
+</table>
+<p>报告坦诚解释 Terminal-Bench 短板：SWE agentic 训练只用了 <strong>bash + string-replace 两个工具</strong>、没针对 terminal 环境训练，所以这个成绩是<em>泛化</em>而非直训的结果。</p>
+
+<h3>通用能力：指令遵循是最大亮点</h3>
+<ul>
+<li><strong>指令遵循 IFBench 69 vs Sonnet 50（+19）</strong>——通用能力最大亮点；CyberSecEval Auto 63 vs 56 也占优。</li>
+<li>短板集中在长上下文 GraphWalks（90 vs 96）、工具调用 BFCL v3（72 vs 76）、健康类 MedXpertQA（43 vs 49）/HealthBench（35 vs 38）。</li>
+</ul>
+
+<h3>人类 side-by-side 评测</h3>
+<p>1276 个全英文任务（30% 多轮），Surge AI 母语评测员按五维打分 + 7 点 Likert：</p>
+<div class="metric-grid">
+  <div class="metric-card"><div class="value win">+0.07</div><div class="label">vs Sonnet 4.6（胜49%/平6%/负45%）</div></div>
+  <div class="metric-card"><div class="value lose">−0.07</div><div class="label">vs Opus 4.6（胜43%/平5%/负52%）</div></div>
+</div>
+<p>两个对比中 MAI-T1 都在 <strong>conciseness & relevance</strong>（+0.11/+0.07）和 <strong>style & tone</strong>（+0.08/+0.05）维度稳定占优，其余维度在噪声内。</p>
+</section>
+
+<!-- ============ SAFETY ============ -->
+<section id="safety">
+<h2>5 · 安全红队</h2>
+<p>红队与开发周期<strong>并行滚动</strong>进行：跨开发早/中/晚期共 <strong>15 次 engagement</strong>、覆盖 <strong>25 个 policy category</strong>、执行 <strong>2170+ 个 goal-based 对抗场景</strong>，每个场景持续 5–10 轮对话以突破首轮拒答。</p>
+<p>核心产出是一套<strong>六大主导攻击模式 taxonomy</strong>：benign pretext 下的多轮升级、虚构/小说化框架、credentialed-persona 伪装、渐进递归/格式漂移、in-context 年龄指示绕过、权威文档伪造——成为后续 prompt 采集与 judge rubric 的覆盖度 checklist。</p>
+<div class="highlight">
+<p><strong>缓解效果</strong>：在最高优先级类别上，aggregate attack success 从缓解前到最终候选下降约 <strong>22%</strong>，其中 jailbreak ~44%、hate & fairness ~43%、child safety ~30%、mental health ~20%。攻击成功率（ASR）：Foundational 4.4% / Compositional 3.0% / Adaptive 5.7%，普遍低于 GPT-5.4、Claude Opus/Sonnet 4.6。</p>
+</div>
+<p>针对 <strong>Adaptive TAP 攻击</strong>（被识别为鲁棒性缺口）构建了闭环对抗数据 pipeline（广泛生成 → transformation 模板扩展 → TAP 自适应精炼）；低资源语言（Yoruba/Telugu/Amharic/Burmese/Khmer/Malay）也通过多语言对抗 seed 缓解。</p>
+</section>
+
+<!-- ============ INFRA ============ -->
+<section id="infra">
+<h2>6 · 集群与基础设施</h2>
+<p>报告把<strong>集群视为模型开发的能动组成部分</strong>，而非被动资源。训练目标是最大化每 wall-clock day 的<em>有效</em> FLOPs，同时保证数值正确性与确定性恢复。</p>
+<div class="def"><span class="term">Goodput（有效产出比）</span><br>定义为<strong>理想训练时长 / 实际 wall-clock 时长</strong>，是首要生产 KPI。MAI-Base-1 在 8K GPU 上达到 <strong>90.0% goodput</strong>，总 overhead 降至 51 小时，其中 recomputation 6.5h（15%）、non-stepping 14h（27%），而 <strong>MFU drop 成为最大单项瓶颈，18h（35%）</strong>——由 checkpointing、网络退化、内存压力、硬件健康转换驱动。MFU drop 被当作生产事故处理。</div>
+<ul>
+<li><strong>确定性作为一等基础设施属性</strong>：消除 silent data corruption、保持通信拓扑稳定、跨 checkpoint/restart 保持浮点 reduction 顺序（禁用 NVLink SHARP、稳定排序 top-k 实现 bitwise 确定性）。</li>
+<li>预训练用 8K GB200，RL climb 用 4.6K GB300；推理部署在 <strong>MAIA-200</strong> 硬件上，相同机架功耗下 token 吞吐比 GB200 高 <strong>40%+</strong>。</li>
+<li>可持续性：2025 年 100% 全球电力消耗匹配可再生能源，主训练在 Phoenix AZ（LEED Gold），投入超 5000 万美元增长公共水资产。</li>
+</ul>
+</section>
+
+<!-- ============ TAKEAWAYS ============ -->
+<section id="takeaways">
+<h2>核心总结</h2>
+<div class="card">
+<p><strong>① 方法论 &gt; 模型。</strong> 报告真正想卖的不是 MAI-Thinking-1 这个模型，而是"hill-climbing machine"这套<strong>把研发变成经验优化闭环</strong>的范式——每个决策都用 EG/ladder/ablation 验证缩放性。</p>
+<p><strong>② 从零 + 无蒸馏 + 纯人类数据</strong>是最大的差异化赌注：用 steerability/robustness 换 distillation 的速度，押注长期爬升能力。</p>
+<p><strong>③ 工程细节扎实</strong>：LatentMoE（压缩潜空间路由）、attention 零初始化防路由坍塌、GRPO 的自适应熵控制 + 外层 clip 维持数千步 log-linear 爬升、self-distillation 在崩溃后重置数值——这些都是可迁移的实操经验。</p>
+<p><strong>④ 成绩诚实</strong>：数学（AIME 97.0/94.5）和 SWE（Pro 52.8）是真强项，指令遵循（IFBench +19）亮眼；但 Terminal-Bench（46.0）、GPQA、健康类是公开短板，报告不回避。整体定位是"与 Sonnet 4.6 同梯队"。</p>
+<p><strong>⑤ 把集群当一等公民</strong>：Goodput 作为首要 KPI、确定性作为基础设施属性、MFU drop 当生产事故——体现"系统级优化"的彻底性。</p>
+</div>
+<p class="small" style="margin-top:18px">来源：MAI-Thinking-1: Building a Hill-Climbing Machine, The Microsoft AI Team, 2026. <a class="ref" href="https://microsoft.ai/pdf/mai-thinking-1.pdf">原文 PDF</a>。图 1/2/3/11/12/13 均为论文原图，从 PDF 页面截取。本报告由多智能体分章节精读综合而成。</p>
+</section>
+
+</main>
+</body>
+</html>

@@ -31,6 +31,13 @@ window.SITE = {
   PAPERS: [
     /* ---------------- 技术报告 ---------------- */
     {
+      title: "MAI-Thinking-1: Building a Hill-Climbing Machine",
+      category: "tech", date: "2026-06", source: "Microsoft AI PDF", authors: "The Microsoft AI Team",
+      path: "MAI-Thinking-1-Building-a-Hill-Climbing-Machine/index.html",
+      summary: "<b>35B 激活 / 1T 总参</b> 的 MoE 推理模型，<b>从零训练 · 不蒸馏第三方 · 纯人类数据</b>。把研发定义为“爬山机器”——用 EG/scaling-ladder/ablation 闭环验证每个决策。核心算法贡献：<b>LatentMoE</b>（压缩潜空间路由）、GRPO 的 <b>自适应熵控制</b>（integral controller 维持 H*=0.3）+ 外层比率裁剪、<b>自蒸馏</b>重置数值以维持数千步 log-linear 爬升。AIME 2025 97.0、SWE-Bench Pro 52.8。",
+      tags: ["LatentMoE", "自适应熵控制", "自蒸馏"],
+    },
+    {
       title: "DeepSeek-V4: Towards Highly Efficient Million-Token Context Intelligence",
       category: "tech", date: "2026-05", source: "Hugging Face PDF", authors: "DeepSeek-AI",
       path: "DeepSeek-V4-Towards-Highly-Efficient-Million-Token-Context-Intelligence/index.html",
