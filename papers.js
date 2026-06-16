@@ -105,6 +105,13 @@ window.SITE = {
 
     /* ---------------- Daily Paper ---------------- */
     {
+      title: "Dynamic Linear Attention：按信息量动态分配内存的多状态线性注意力",
+      category: "daily", date: "2026-06", source: "arXiv:2606.10650", authors: "Xin Wang 等 · OSU · UMich · ByteDance Seed",
+      path: "daily/Dynamic-Linear-Attention/index.html",
+      summary: "多状态线性注意力把固定时刻表合并换成<b>按 token 信息量动态决定状态边界</b>。两大机制：<b>信息感知动态状态合并</b>（用 State Information Score $I_t=\\lVert S_t-S_{t-1}\\rVert_F/(\\lVert S_{t-1}\\rVert_F+\\epsilon)$ 判断是否开新状态）+ <b>容量受限内存建模</b>（按信息密度合并相邻状态、钉死推理成本）。理论证明固定切块在非平稳序列上严格次优。两骨干 16 数据集全面超 Log-Linear（RULER 难任务 ↑最高 350%），Mamba-2+DLA 追平同规模全注意力。",
+      tags: ["Dynamic State Merging", "信息密度"],
+    },
+    {
       title: "Slicing and Dicing：配置最优的专家混合 (MoE)",
       category: "daily", date: "2026-06", source: "arXiv:2605.11689", authors: "Slicing and Dicing 作者团队",
       path: "daily/Slicing-and-Dicing-Optimal-MoE/index.html",

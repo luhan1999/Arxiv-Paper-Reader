@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dynamic Linear Attention (DLA) 深度解读</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:240px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px}.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:240px;max-width:860px;padding:48px 44px 120px} h1{font-size:27px;line-height:1.35;margin:0 0 6px;color:#000} .subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+h2{font-size:20px;color:#000;margin:32px 0 12px;padding-bottom:6px;border-bottom:2px solid #000} h3{font-size:16px;color:#000;margin:24px 0 8px} p{margin:0 0 12px;text-align:justify}
+.card,.highlight{border:1px solid var(--line);padding:18px;margin:16px 0;background:#fff}.highlight{background:#f7f7f2;border-left:3px solid #000}
+.figure-box{border:1px solid #ccc;padding:14px;text-align:center;margin:20px auto;background:#fff}.figure-box img{max-width:100%;height:auto}.caption{font-size:12px;color:#444;margin-top:8px;line-height:1.65;font-style:italic;text-align:left}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px} th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left} td{border-bottom:1px solid #ddd;padding:7px 9px}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}.metric-card{border:1px solid #ccc;text-align:center;padding:14px}.metric-card .value{font-size:25px;font-weight:700;color:#000}.metric-card .label{font-size:11px;color:#666;margin-top:4px}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto}.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px}
+.def{background:#f4f6f8;border-left:3px solid #2c5777;padding:14px 16px;margin:14px 0}.def .term{font-weight:700;color:#1a3a52}
+.lead{font-size:16px;border-left:3px solid #000;padding-left:16px;color:#333;font-style:italic;margin:18px 0}
+code{background:#eef0f2;padding:1px 5px;font-size:13px;border-radius:2px;font-family:ui-monospace,Menlo,monospace}
+ul{margin:8px 0 14px}li{margin:4px 0} .small{font-size:12px;color:#666}
+.win{color:#2c5c2c;font-weight:700}
+a.ref{color:#1a4d8f;text-decoration:none}a.ref:hover{text-decoration:underline}
+@media(max-width:900px){.toc-sidebar{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line)}.main{margin-left:0;padding:24px 20px 80px}}
+</style>
+</head>
+<body>
+<nav class="toc-sidebar">
+  <h2>目录</h2>
+  <a href="#intro">引言 · 核心问题</a>
+  <a href="#prelim">背景：线性注意力</a>
+  <a href="#prelim-multi" class="sub">多状态与 Log-Linear</a>
+  <a href="#method">DLA 方法</a>
+  <a href="#method-merge" class="sub">① 动态状态合并</a>
+  <a href="#method-cap" class="sub">② 容量受限内存</a>
+  <a href="#theory">理论：偏差上界</a>
+  <a href="#exp">实验</a>
+  <a href="#exp-main" class="sub">主结果</a>
+  <a href="#exp-eff" class="sub">推理效率</a>
+  <a href="#exp-ablation" class="sub">消融</a>
+  <a href="#takeaways">核心总结</a>
+</nav>
+
+<main class="main">
+<h1>Dynamic Linear Attention：让多状态线性注意力"按信息量"动态分配内存</h1>
+<div class="subtitle">Xin Wang, Hui Shen 等 · The Ohio State University · University of Michigan · ByteDance Seed · arXiv:2606.10650 (2026)</div>
+
+<section id="intro">
+<h2>引言 · 核心问题</h2>
+<p>标准 Transformer 的自注意力对序列长度 $T$ 是 $O(T^2)$ 复杂度，长上下文下计算与显存都难以承受。<strong>线性注意力（Linear Attention）</strong>通过去掉 softmax 归一化、利用结合律重排计算，把复杂度降到次二次，是长序列建模的热门方向。但纯线性注意力把<em>整段历史压进单个状态矩阵</em>，表达力在长上下文下受限。</p>
+<p>为提升表达力，近期工作转向<strong>多状态（multi-state）</strong>组织：把历史切成若干块、各自汇总成一个紧凑的记忆状态。代表作 <strong>Log-Linear Attention</strong> 用 Fenwick 树把前缀分解成对数个多尺度状态，近处细、远处粗。然而——</p>
+<div class="lead">现有多状态方法都依赖<strong>固定的状态合并策略</strong>（固定块大小 / 规则化的合并时刻表），隐含假设"信息密度沿序列均匀分布"。这与长序列真实的、非均匀且动态演化的信息结构根本失配。</div>
+<p>这种失配带来两个致命问题：① <strong>无法适应突发的语义转折</strong>——重要 token 仅因为"到了预设边界"就被过早吸收进粗粒度摘要；② <strong>合并不可逆</strong>——一旦异质 token 被压进同一个状态，其各自贡献再也无法恢复，误差沿长序列<strong>累积放大</strong>。</p>
+<p>本文提出 <strong>Dynamic Linear Attention（DLA）</strong>，一个面向多状态线性注意力的<strong>动态内存建模框架</strong>，核心是让"何时开新状态、何时合并"由 token 级别的信息变化量来决定，而非固定时刻表。</p>
+
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">2</div><div class="label">核心机制（动态合并 + 容量受限）</div></div>
+  <div class="metric-card"><div class="value">16</div><div class="label">评测数据集（3 大类）</div></div>
+  <div class="metric-card"><div class="value">↑52%</div><div class="label">vs Log-Linear 最大相对提升（常识推理）</div></div>
+  <div class="metric-card"><div class="value">↑350%</div><div class="label">RULER S-NIAH-3 相对提升</div></div>
+</div>
+<p>三个主要发现：<strong>(1)</strong> DLA 在全部任务上一致超过 SOTA 多状态方法 Log-Linear Attention；<strong>(2)</strong> 用在 Mamba-2 上时，DLA 变体甚至追平了同等参数规模的 full-attention Transformer；<strong>(3)</strong> DLA 比 Log-Linear 吞吐更高、运行时显存更低。</p>
+</section>
+
+<section id="prelim">
+<h2>背景：从线性注意力到多状态</h2>
+<p>标准自注意力 $O=\mathrm{softmax}(QK^\top\odot M)V$（$M$ 为因果掩码），复杂度 $O(T^2)$。线性注意力去掉 softmax，写成并行式 $O=(QK^\top\odot M)V$，并等价于一个<strong>循环式</strong>：维护单个状态矩阵 $S_t\in\mathbb{R}^{d\times d}$ 汇总全部历史：</p>
+<div class="formula">
+$$S_t = S_{t-1} + v_t k_t^\top,\qquad o_t = S_t q_t$$
+</div>
+<p>这带来线性时间推理 + 常数显存，但<strong>把整段历史压成一个状态</strong>，长上下文表达力受限。DeltaNet 进一步引入 delta 规则做"可控遗忘"：$S_t = S_{t-1}(I-\beta_t k_t k_t^\top)+v_t k_t^\top$，其中 $\beta_t$ 是数据相关的步长——提升了适应性，但仍是<strong>单一全局状态</strong>，无法在长序列上选择性保留细粒度信息。</p>
+
+<h3 id="prelim-multi">多状态线性注意力与 Log-Linear</h3>
+<p>多状态方法把历史切段、各段汇总成独立状态。Log-Linear Attention 在时刻 $t$ 把前缀 $[0,t]$ 用 Fenwick 树分解成至多 $L=\lceil\log_2(t{+}1)\rceil+1$ 个不相交的桶 $\{B_t^{(\ell)}\}$，近处分辨率高、远处低：</p>
+<div class="formula">
+$$S_t^{(\ell)}=\sum_{s\in B_t^{(\ell)}} v_s k_s^\top,\qquad o_t=\sum_{\ell=0}^{L-1}\lambda_t^{(\ell)} S_t^{(\ell)} q_t$$
+</div>
+<p>它实现了 $O(T\log T)$ 训练、每步解码 $O(\log T)$ 时间与显存。<strong>但其状态粒度由固定的层级时刻表决定，与 token 级表达变化无关</strong>——语义关键 token 可能被过早吞入粗摘要，关键位置的扰动会沿固定多尺度状态传播。这正是 DLA 要解决的痛点。</p>
+</section>
+
+<section id="method">
+<h2>DLA 方法设计</h2>
+<p>DLA 顺序处理 token：对每个新 token，计算一个轻量的 <strong>State Information Score（状态信息分数）$I_t$</strong>，衡量它相对最近记忆状态的表达变化量。低变化的 token 被并入当前状态，高漂移的 token 则<strong>开启一个新状态</strong>——从而在语义转折处保留高分辨率、在平稳区段激进汇总。同时用一个<strong>容量受限的状态缓存</strong>把内存与计算钉死在固定上界。</p>
+
+<div class="figure-box">
+  <img src="images/fig01_overview.png" alt="DLA overview">
+  <div class="caption"><b>Figure 1.</b> DLA 总览，分两个模块。<strong>左（① Information-Aware Dynamic State Merging）</strong>：token 序列中浅蓝为 Stable Token、深蓝为 Drift Token。连续的稳定 token（如 $T_{10}$–$T_{12}$、$T_{13}$–$T_{17}$）通过 "Update State" 被累积进同一个状态（汇总成 $S_8$、$S_9$）；到 $T_{18}$ 时算出信息分数 $I_t$，若 $I_t &lt; \tau$ 则继续合并（浅色 Merge 箭头），若 $I_t\ge\tau$ 则开启新状态 $S_{10}$。<strong>右（② Capacity-Bounded Memory Modeling）</strong>：Summary Budget=7，当新状态 $S_{10}$ 进入而缓存已满时，挑选信息密度最低的相邻一对（图中 $S_2$ 与中间状态）合并腾出一个槽位（"New State in, Old State Merge"），最终对保留的状态 $S_1,\dots,S_9$ 用查询相关权重 $q_n\times\lambda_n$ 加权读出。这张图是全文方法的"一页纸"概览。</div>
+</div>
+
+<h3 id="method-merge">① 信息感知的动态状态合并</h3>
+<p><strong>动机：</strong>固定策略（每 $K$ 个 token 切一刀、或硬规则边界）对序列的语义演化是"盲"的。实际信息密度高度非均匀：语义转折可能突然发生，而长段 token 局部冗余。固定策略因此既不能适应突发语义变化，合并决策又不可逆。</p>
+<p><strong>关键设计：</strong>引入 State Information Score 度量新 token 带来的新信息量。令 $s_t\triangleq\phi(k_t)v_t^\top$ 为新 token $t$ 的状态，$S_{t-1}$ 为汇总了多个过去 token 的上一记忆状态，定义信息变化量：</p>
+<div class="formula">
+$$I_t = \frac{\lVert S_t - S_{t-1}\rVert_F}{\lVert S_{t-1}\rVert_F + \epsilon}$$
+</div>
+<p>分子是两个状态矩阵之差的 Frobenius 范数（变化的绝对量），分母是上一状态的范数 + 小常数 $\epsilon$（做相对归一，防除零）。实践中先对 $S_t,S_{t-1}$ 施加 <strong>RMSNorm</strong> 再算分数，稳定跨层、跨时间步的尺度。推理时用硬边界指示器 $b_t\triangleq\mathbb{1}[I_t\ge\tau]$ 决定状态更新（$S_{t-1}^{\mathrm{cur}}$ 是缓存中最近的状态）：</p>
+<div class="formula">
+$$S_t=\begin{cases}S_{t-1}^{\mathrm{cur}}+s_t, & b_t=0\ (\text{并入当前状态})\\[4pt] S_t, & b_t=1\ (\text{开启新状态})\end{cases}$$
+</div>
+<p>关键工程细节：<strong>训练时用 soft gating（可微的软边界）</strong>让梯度能流过边界决策，<strong>推理时切到 hard segmentation（硬分段）</strong>产出一组离散、与语义边界对齐的记忆状态——既可训练，又在推理时保持信息感知的判据。算法见 <code>Algorithm 1</code>。</p>
+
+<div class="figure-box">
+  <img src="images/fig02_comparison.png" alt="Three attention variants comparison">
+  <div class="caption"><b>Figure 2.</b> 三种线性注意力的状态构造对比，输入都是同一句 "The model uses machine learning to process …" 的 query/key/value 向量。<strong>左（Linear Attention）</strong>：每个 token 都把信息累进<em>同一个</em>全局状态 $S_1$（单状态、过度压缩）。<strong>中（Log-Linear Attention）</strong>：按固定层级时刻表把历史组织成多尺度状态 $S_3$–$S_6$ 等，边界由 Fenwick 树<em>预先确定</em>，与内容无关。<strong>右（Dynamic Linear Attention）</strong>：状态边界由内容驱动——注意 "machine learning" 被高亮（橙色），DLA 在该语义转折处<em>动态</em>开启新状态，平稳处则合并。三者从左到右体现了"单状态 → 固定多状态 → 动态多状态"的演进。</div>
+</div>
+
+<h3 id="method-cap">② 容量受限的内存建模</h3>
+<p><strong>动机：</strong>光有动态合并还不够——状态数若无上限，长上下文/高吞吐服务时会导致内存布局不规则、注意力开销可变、批处理效率下降。必须<strong>显式限制状态数</strong>，同时尽量保住最有信息量的摘要。</p>
+<p><strong>关键设计：</strong>DLA 维护一个状态缓存 $M=\{(S_i,n_i,\bar{I}_i)\}_{i=1}^m$（$m\le K$）：$S_i$ 是第 $i$ 个按时间排序的状态，$n_i$ 是它汇总的 token 数，$\bar{I}_i$ 是该状态内所有 token 信息分数之和——于是 $\bar{I}_i/n_i$ 就是<strong>信息密度</strong>。缓存未满时直接插入；一旦达到容量 $K$，触发压缩：在所有相邻对 $(i,i{+}1)$ 中挑<strong>信息密度最低</strong>的一对合并，腾出一个槽位。</p>
+<div class="formula">
+$$(i^\star,i^\star{+}1)=\arg\min_{i\in\{1,\dots,K-1\}}\frac{\bar{I}_i+\bar{I}_{i+1}}{n_i+n_{i+1}}$$
+</div>
+<p>合并用累加算子：$S_{i^\star}\!\leftarrow\!S_{i^\star}+S_{i^\star+1}$，$n_{i^\star}\!\leftarrow\!n_{i^\star}+n_{i^\star+1}$，$\bar{I}_{i^\star}\!\leftarrow\!\bar{I}_{i^\star}+\bar{I}_{i^\star+1}$。<strong>只允许合并相邻状态</strong>，以保住时间顺序、不扭曲位置语义。最终输出对缓存中的状态做查询相关加权读出：</p>
+<div class="formula">
+$$o_t=\sum_{i=1}^{m}\lambda_{t,i}\,q_t^\top S_i$$
+</div>
+<p>其中权重 $\lambda_{t,i}$ 在预训练时由 query 表征上的一个线性层学出、推理时复用（沿用 Log-Linear 的做法），形状与内存容量一致。算法见 <code>Algorithm 2</code>。这样 DLA 用统一方式从一个<strong>时间有序、容量受限</strong>的内存中读取，推理成本稳定，同时仍能强调信息量大的状态。</p>
+</section>
+
+<section id="theory">
+<h2>理论：为什么固定策略次优</h2>
+<p>论文给出一个偏差上界来论证"固定合并不可取"。设每个 token 对状态的可加贡献为 $u_t$，把 token 列表按策略 $\pi$ 切成 $m$ 个连续块 $\{C_i\}$，每块用代表向量 $\bar{u}_i$ 概括。精确输出 $y(q)$ 与摘要输出 $\tilde{y}_\pi(q)$ 之差有如下上界：</p>
+<div class="def"><span class="term">Theorem 3.1（状态偏差上界）</span><br>
+$$\big|y(q)-\tilde{y}_\pi(q)\big|\ \le\ \lVert q\rVert_2\cdot\sum_{i=1}^{m}\sqrt{|C_i|}\,\sqrt{\sum_{t\in C_i}\lVert u_t-\bar{u}_i\rVert_2^2}$$
+证明用 Cauchy–Schwarz 不等式 + 三角不等式逐块放缩得到。其含义是：<strong>摘要带来的偏差，由"块内异质性"（块内各 token 偏离其代表向量的程度）主导。</strong></div>
+<p>结论很直接：<strong>内容无关的固定切块</strong>不去适应表达变化，在非平稳序列上会把方差大的 token 混进同一块，从而吃到更大的偏差上界。论文进一步给出推论：</p>
+<div class="def"><span class="term">Corollary 3.2（固定切块在非平稳序列上严格次优）</span><br>存在一类非平稳序列，任何固定切块策略 $\pi_{\mathrm{fix}}$ 的偏差上界都<strong>严格大于</strong>把边界对齐到语义变化点的自适应策略 $\pi_{\mathrm{dyn}}$。证明思路：构造均值不同的两段 $A,B$，固定策略必有一个块横跨两段，该跨段块的最小块内异质性为 $\frac{n_A n_B}{n_A+n_B}\lVert\mu_A-\mu_B\rVert_2^2>0$；而自适应策略把边界放在变化点，块只落在 $A$ 或 $B$ 内，该项为 0。</div>
+<p>由此，<strong>DLA 可被理解为一个贪心的在线策略</strong>：它只在"引入的异质性增量很小"时才合并新 token（靠 $I_t$ 判断），从而近似最小化偏差上界的主导项；固定策略则完全忽略这一项，因此竞争力不如 DLA。理论与方法在此闭环。</p>
+</section>
+
+<section id="exp">
+<h2>实验验证</h2>
+<div class="card">
+<p><strong>设置：</strong>在两个线性注意力骨干上从零预训练——<strong>Mamba-2-780M</strong> 与 <strong>Gated DeltaNet-1.3B</strong>，沿用 Log-Linear 的配置。语料 Long-Data-Collections，<strong>50B tokens、序列长 16K、4×A100</strong>。DLA 状态缓存容量 $K=30$（与 Log-Linear 的最大状态数一致，保证公平）。基线含 vanilla 线性注意力、各自的 Log-Linear 变体，以及一个 24 层 / 778M 参数的 full-attention Transformer。评测覆盖 16 个数据集，分三类：8 个常识推理、6 个上下文检索、2 个长上下文（RULER + LongBench），统一用 LM-Evaluation-Harness。</p>
+</div>
+
+<h3 id="exp-main">主结果：三类任务全面领先</h3>
+<p><strong>常识推理（Table 1）。</strong>DLA 在两个骨干上的平均分都超过 vanilla 与 Log-Linear 变体；尤其在 Mamba-2 上，<strong>DLA 还反超了同参数规模的 full-attention Transformer（34.2 vs 32.9）</strong>——说明它能抹平甚至超越线性注意力与全注意力之间的精度差。</p>
+<table>
+<thead><tr><th>模型（8 任务平均 ↑）</th><th>LAMBADA</th><th>ARC-c</th><th>CSQA</th><th>Average</th></tr></thead>
+<tbody>
+<tr><td>Full-attention Transformer (778M)</td><td>21.8</td><td>17.7</td><td>18.0</td><td>32.9</td></tr>
+<tr><td>Mamba-2 (780M)</td><td>15.7</td><td>18.9</td><td>20.3</td><td>31.8</td></tr>
+<tr><td>&nbsp;&nbsp;w/ Log-Linear</td><td>13.2</td><td>20.1</td><td>19.1</td><td>31.0</td></tr>
+<tr><td>&nbsp;&nbsp;<strong>w/ DLA</strong></td><td class="win">18.7</td><td class="win">22.1</td><td class="win">21.1</td><td class="win">34.2 (↑8%)</td></tr>
+<tr><td>Gated DeltaNet (1.3B)</td><td>20.3</td><td>20.2</td><td>21.3</td><td>32.8</td></tr>
+<tr><td>&nbsp;&nbsp;w/ Log-Linear</td><td>19.0</td><td>20.5</td><td>21.0</td><td>32.6</td></tr>
+<tr><td>&nbsp;&nbsp;<strong>w/ DLA</strong></td><td class="win">20.8</td><td class="win">23.0</td><td class="win">22.9</td><td class="win">34.8 (↑6%)</td></tr>
+</tbody>
+</table>
+
+<p><strong>上下文检索（Table 2）。</strong>6 个检索任务（SQuAD/TriviaQA/SWDE/FDA/NQ/Drop）上 DLA 一致领先，平均最高 <strong>↑49%</strong> 相对提升：Mamba-2 平均 9.5→13.7（↑44%），Gated DeltaNet 平均 20.3→28.8（↑42%）。检索类任务对"细粒度信息保留"最敏感，正是 DLA 的强项。</p>
+
+<p><strong>长上下文（Table 3 RULER / Table 4 LongBench）。</strong>RULER 4K 上，越难的多针任务（multi-needle）提升越夸张——Mamba-2 的 S-NIAH-3 从 10.6→37.1（<strong>↑250%</strong>）、MK-NIAH-1 从 41.6→60.3（↑45%）、MQ-NIAH ↑67%；正文还提到单针 S-NIAH-1 直接打到 100。这说明 DLA 显著改善了长程信息的保留与聚合。LongBench 上跨叙事 QA、多文档 QA、摘要、few-shot 各类任务一致且均匀提升，泛化到检索之外的复杂推理与生成。</p>
+<table>
+<thead><tr><th>RULER 4K（Mamba-2）</th><th>S-NIAH-2</th><th>S-NIAH-3</th><th>MK-NIAH-1</th><th>MQ-NIAH</th></tr></thead>
+<tbody>
+<tr><td>w/ Log-Linear</td><td>39.4</td><td>10.6</td><td>41.6</td><td>25.2</td></tr>
+<tr><td><strong>w/ DLA</strong></td><td class="win">69.2 (↑76%)</td><td class="win">37.1 (↑250%)</td><td class="win">60.3 (↑45%)</td><td class="win">42.5 (↑67%)</td></tr>
+</tbody>
+</table>
+
+<h3 id="exp-eff">推理效率</h3>
+<div class="figure-box">
+  <img src="images/fig03_efficiency.png" alt="Efficiency under batch size and context length">
+  <div class="caption"><b>Figure 3.</b> Mamba-2 (780M) 在 prefill 阶段、单张 A100 上的吞吐（tokens/sec，越高越好）与运行时显存（GB，越低越好）。三色柱：<strong>灰=vanilla Mamba-2、浅蓝=Log-Linear、深蓝=DLA</strong>。<strong>(a)/(b) 变 batch size（1–8，固定上下文 128）</strong>：vanilla 因只存单状态，吞吐最高、显存最低；多状态方法都有额外开销，但 <strong>DLA 始终比 Log-Linear 吞吐更高、显存更低</strong>（如 batch=8 时显存 4.2 vs 4.6 GB）。<strong>(c)/(d) 变上下文长度（128–1024，固定 batch 1）</strong>：随长度增长两种多状态方法显存都上升，但 <strong>DLA 的显存更低更平稳</strong>、吞吐持续优于 Log-Linear。一句话：DLA 在"多状态带来的表达力"与"接近单状态的效率"之间取得了更好折中。</div>
+</div>
+
+<h3 id="exp-ablation">消融实验</h3>
+<p><strong>模块敏感性（Table 5）。</strong>记 DLA(I) 为"只用信息感知动态合并、不加容量受限"的版本。结论两条：① DLA(I) 和完整 DLA 都一致超过 Log-Linear；② 完整 DLA 又一致超过 DLA(I)。说明两个模块各有独立贡献，叠加才最优。以 Mamba-2 的 RULER 为例：Log-Linear 39.0 → DLA(I) 44.0（↑13%）→ DLA 57.8（↑48%）。</p>
+<table>
+<thead><tr><th>Mamba-2 变体</th><th>LMB.</th><th>PIQA</th><th>Hella.</th><th>RULER</th></tr></thead>
+<tbody>
+<tr><td>w/ Log-linear</td><td>13.2</td><td>59.7</td><td>27.8</td><td>39.0</td></tr>
+<tr><td>w/ DLA(I) 仅动态合并</td><td>20.1</td><td>61.5</td><td>30.3</td><td>44.0 (↑13%)</td></tr>
+<tr><td><strong>w/ DLA 完整</strong></td><td class="win">23.9</td><td class="win">63.7</td><td class="win">30.8</td><td class="win">57.8 (↑48%)</td></tr>
+</tbody>
+</table>
+<p><strong>超参鲁棒性（Table 6）。</strong>把容量 $k$ 从默认 30 调成 20/40、把合并边界 $\tau$ 从默认 0.6 调成 0.5/0.7，性能变化都只是边际波动（如 RULER 在 $k=20/30/40$ 下为 56.3/57.8/57.7）。说明 DLA 的内存建模对这两个关键超参不敏感、稳健。</p>
+</section>
+
+<section id="takeaways">
+<h2>核心总结</h2>
+<div class="card">
+<p><strong>① 一句话定位：</strong>DLA 把多状态线性注意力的"固定时刻表合并"换成<strong>按 token 信息量动态决定状态边界</strong>，并用容量受限缓存把推理成本钉死——在语义转折处保高分辨率、在平稳区段激进汇总。</p>
+<p><strong>② 两个机制相互成就：</strong>State Information Score $I_t=\lVert S_t-S_{t-1}\rVert_F/(\lVert S_{t-1}\rVert_F+\epsilon)$ 负责"何时开新状态"；容量受限缓存按<strong>信息密度</strong> $\bar{I}_i/n_i$ 选最低的相邻对合并，负责"内存不爆"。训练软门控、推理硬分段，兼顾可训练与离散对齐。</p>
+<p><strong>③ 理论有据：</strong>Theorem 3.1 证明摘要偏差由块内异质性主导，Corollary 3.2 证明固定切块在非平稳序列上严格次优——DLA 是近似最小化该上界主导项的贪心在线策略。</p>
+<p><strong>④ 实证扎实：</strong>两个骨干、16 数据集全面领先 Log-Linear（常识 ↑最高52%、检索 ↑最高49%、RULER 难任务 ↑最高350%），Mamba-2+DLA 甚至追平同规模全注意力 Transformer；效率上吞吐更高、显存更低更稳；对容量 $k$ 与边界 $\tau$ 稳健。</p>
+<p><strong>⑤ 局限与展望：</strong>实验为学术规模（50B tokens、≤1.3B 参数、16K 训练长度），更大模型/更长上下文的可扩展性待验证；$I_t$ 与硬边界 $\tau$ 的"训练软、推理硬"切换是否在所有分布上无缝仍可深究。</p>
+</div>
+<p class="small" style="margin-top:18px">来源：Dynamic Linear Attention. Xin Wang, Hui Shen, Boyuan Zheng, et al. The Ohio State University · University of Michigan · ByteDance Seed, 2026. <a class="ref" href="https://arxiv.org/abs/2606.10650">arXiv:2606.10650</a>。图 1/2/3 均为论文原图，由 arXiv LaTeX 源 (overview_bp / comparison / efficiency.pdf) 转 PNG。</p>
+</section>
+
+</main>
+</body>
+</html>
