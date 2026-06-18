@@ -105,6 +105,13 @@ window.SITE = {
 
     /* ---------------- Daily Paper ---------------- */
     {
+      title: "IndexCache：通过跨层索引复用加速稀疏注意力",
+      category: "daily", date: "2026-06", source: "arXiv:2603.12201", authors: "Yushi Bai 等 · 清华大学 & Z.ai",
+      path: "daily/IndexCache-Cross-Layer-Index-Reuse/index.html",
+      summary: "DSA 把核心注意力降到 $O(Lk)$ 后，<b>“便宜但仍 $O(L^2)$”的闪电索引器</b>每层都要重跑，长上下文下反占预填充时延 81%。本文观察到 DSA 索引器的 top-k 选择<b>跨层高度稳定</b>（相邻层重合 70–100%），提出 <b>IndexCache</b>：少数 F 层运行索引器、多数 S 层复用最近 F 层缓存的索引，仅加一个条件分支、零额外显存。两条路线：训练无关的<b>贪心 LM-loss 层选择</b>（“留哪些”比“留多少”重要）+ 训练感知的<b>多层蒸馏</b>（证明梯度等价于向各层注意力分布质心蒸馏）。30B 上移除 75% 索引器质量近乎无损，预填充 1.82×、解码 1.48×；744B GLM-5 上确认 ≥1.3×。",
+      tags: ["跨层索引复用", "贪心层选择", "多层蒸馏"],
+    },
+    {
       title: "SDPO：通过自蒸馏进行强化学习",
       category: "daily", date: "2026-06", source: "arXiv:2601.20802", authors: "Jonas Hübotter 等 · ETH Zurich · MPI-IS · MIT · Stanford",
       path: "daily/SDPO-Reinforcement-Learning-via-Self-Distillation/index.html",
