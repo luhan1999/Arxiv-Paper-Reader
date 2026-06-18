@@ -105,6 +105,13 @@ window.SITE = {
 
     /* ---------------- Daily Paper ---------------- */
     {
+      title: "SDPO：通过自蒸馏进行强化学习",
+      category: "daily", date: "2026-06", source: "arXiv:2601.20802", authors: "Jonas Hübotter 等 · ETH Zurich · MPI-IS · MIT · Stanford",
+      path: "daily/SDPO-Reinforcement-Learning-via-Self-Distillation/index.html",
+      summary: "RLVR 每次只从一个标量奖励学习，造成严重的<b>信用分配瓶颈</b>。本文提出新范式 <b>RLRF</b>（富反馈强化学习）与算法 <b>SDPO</b>：把“看过反馈的当前策略”当作<b>自教师</b>，对原始回答逐 token 重评再蒸馏回学生——无外部教师、无奖励模型，仅替换优势即可接入现有 RLVR 流水线，把 1-bit 奖励升级为 logit 级稠密信号。LCBv6 上 48.8% vs GRPO 41.2%（达终精度少 4× 生成）、回答最高短 11×、测试时难题发现解快 3×；自教师回顾能力随规模涌现。",
+      tags: ["SDPO", "RLRF", "On-Policy Distillation"],
+    },
+    {
       title: "Dynamic Linear Attention：按信息量动态分配内存的多状态线性注意力",
       category: "daily", date: "2026-06", source: "arXiv:2606.10650", authors: "Xin Wang 等 · OSU · UMich · ByteDance Seed",
       path: "daily/Dynamic-Linear-Attention/index.html",

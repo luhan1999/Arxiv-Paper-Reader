@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SDPO：通过自蒸馏进行强化学习 深度解读</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root{--bg:#fff;--text:#222;--muted:#666;--line:#d8d8d8;--soft:#f6f6f6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:15px/1.9 'STIX Two Text','Noto Serif SC','Times New Roman',serif}
+.toc-sidebar{position:fixed;left:0;top:0;width:248px;height:100vh;overflow:auto;background:#fafafa;border-right:1px solid var(--line);padding:24px 16px}
+.toc-sidebar h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px}.toc-sidebar a{display:block;color:#555;text-decoration:none;font-size:12.5px;padding:5px 8px;border-left:2px solid transparent}.toc-sidebar a:hover{color:#000;border-left-color:#000;background:#f0f0f0}.toc-sidebar .sub{padding-left:20px;font-size:11.5px}
+.main{margin-left:248px;max-width:880px;padding:48px 50px 120px} h1{font-size:28px;line-height:1.35;margin:0 0 6px;color:#000} .subtitle{font-size:13px;color:var(--muted);margin-bottom:18px}
+h2{font-size:21px;color:#000;margin:36px 0 12px;padding-bottom:6px;border-bottom:2px solid #000} h3{font-size:16.5px;color:#000;margin:26px 0 8px} p{margin:0 0 12px;text-align:justify}
+.card,.highlight{border:1px solid var(--line);padding:18px;margin:16px 0;background:#fff}.highlight{background:#f7f7f2;border-left:3px solid #000}
+.figure-box{border:1px solid #ccc;padding:14px;text-align:center;margin:22px auto;background:#fff}.figure-box img{max-width:100%;height:auto}.caption{font-size:12px;color:#444;margin-top:8px;line-height:1.65;font-style:italic;text-align:left}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px} th{background:#f0f0f0;border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 9px;text-align:left} td{border-bottom:1px solid #ddd;padding:7px 9px}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:18px 0}.metric-card{border:1px solid #ccc;text-align:center;padding:14px}.metric-card .value{font-size:25px;font-weight:700;color:#000}.metric-card .label{font-size:11px;color:#666;margin-top:4px}
+.formula{background:#f7f7f7;border-left:2px solid #000;padding:12px 16px;margin:14px 0;overflow-x:auto}.tag{display:inline-block;border:1px solid #999;padding:1px 8px;font-size:11px;margin:2px}
+.takeaway{background:#1a1a1a;color:#f4f4f4;padding:16px 20px;margin:18px 0;border-radius:2px}.takeaway b{color:#fff}
+code{background:#eee;padding:1px 5px;font-size:13px;font-family:'SF Mono',Menlo,monospace}
+@media(max-width:900px){.toc-sidebar{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line)}.main{margin-left:0;padding:24px 20px 80px}}
+</style>
+</head>
+<body>
+<nav class="toc-sidebar">
+<h2>目录</h2>
+<a href="#abs">摘要 · 一句话总结</a>
+<a href="#bg">1. 背景：RLVR 的信息瓶颈</a>
+<a href="#rlrf" class="sub">1.1 从 RLVR 到 RLRF</a>
+<a href="#idea" class="sub">1.2 核心洞察：自教师</a>
+<a href="#method">2. SDPO 方法</a>
+<a href="#loss" class="sub">2.1 蒸馏损失与梯度</a>
+<a href="#vs" class="sub">2.2 与 GRPO 的对照</a>
+<a href="#stab" class="sub">2.3 稳定性与开销</a>
+<a href="#exp3">3. 无富反馈环境下的学习</a>
+<a href="#concise" class="sub">3.1 学会简洁推理</a>
+<a href="#exp4">4. 富反馈环境下的学习</a>
+<a href="#scale" class="sub">4.1 模型越强收益越大</a>
+<a href="#dense" class="sub">4.2 稠密信用分配消融</a>
+<a href="#boot" class="sub">4.3 自教师自我提升</a>
+<a href="#forget" class="sub">4.4 缓解灾难性遗忘</a>
+<a href="#fb" class="sub">4.5 哪种反馈最有用</a>
+<a href="#exp5">5. 测试时自蒸馏解难题</a>
+<a href="#analysis">6. 深度分析</a>
+<a href="#limit">7. 局限与展望</a>
+<a href="#sum">8. 核心总结</a>
+<a href="#src">来源链接</a>
+</nav>
+<div class="main">
+
+<h1>通过自蒸馏进行强化学习</h1>
+<div class="subtitle">Reinforcement Learning via Self-Distillation (SDPO) · Hübotter et al., ETH Zurich / MPI-IS / MIT / Stanford · arXiv:2601.20802 (ICML 2026 投稿)</div>
+
+<div class="highlight" id="abs">
+<b>一句话总结：</b>当前 RLVR（可验证奖励强化学习）每次只从一个标量奖励学习，造成严重的<strong>信用分配瓶颈</strong>。但很多环境其实会返回丰富的<strong>文本反馈</strong>（运行时报错、裁判评价）。SDPO 把"看过反馈后的当前模型"当作<strong>自教师</strong>，让它对原始回答逐 token 重新打分，再把这份带反馈的 next-token 分布蒸馏回策略本身——<strong>无需外部强教师、无需奖励模型</strong>，就把 1-bit 奖励升级为 logit 级的稠密学习信号。
+</div>
+
+<p>本文出自苏黎世联邦理工 Andreas Krause 组，作者团队横跨 ETH、马普所、MIT、Stanford。它提出了一个新的训练范式 <strong>RLRF（Reinforcement Learning with Rich Feedback，富反馈强化学习）</strong>，以及该范式下的具体算法 <strong>SDPO（Self-Distillation Policy Optimization）</strong>。其最吸引人的卖点是：SDPO 可以作为<strong>对现有 RLVR 流水线的最小改动</strong>（仅替换优势函数）落地，却能在科学推理、工具调用、竞赛编程三类任务上同时提升样本效率与最终精度，并在测试时把难题的"发现解"速度加快 3 倍。</p>
+
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">48.8%</div><div class="label">LCBv6 精度（GRPO 41.2%）</div></div>
+  <div class="metric-card"><div class="value">4×</div><div class="label">达到 GRPO 终精度所需更少生成量</div></div>
+  <div class="metric-card"><div class="value">11×</div><div class="label">回答长度最高缩短（精度反升）</div></div>
+  <div class="metric-card"><div class="value">3×</div><div class="label">测试时难题发现解的加速</div></div>
+</div>
+
+<h2 id="bg">1. 背景：RLVR 的信息瓶颈</h2>
+
+<p>大模型后训练的主流配方是 <strong>RLVR</strong>：给定问题 $x$，模型采样答案 $y\sim\pi_\theta(\cdot\mid x)$，环境返回一个标量奖励 $r\in\mathbb{R}$（编程任务里常是单元测试 0/1 通过）。GRPO 等策略梯度方法用组内相对奖励估计优势。这套机制有两个根本痛点：</p>
+
+<ul>
+<li><strong>信用分配瓶颈</strong>：一整段长达数千 token 的回答，只换来一个标量奖励。模型无从得知"<em>具体错在哪一步</em>"，只知道"<em>整体对/错</em>"。</li>
+<li><strong>稀疏性导致学习停滞</strong>：当一组 rollout 全部得到相同奖励（常常全为 0）时，GRPO 的组相对优势<strong>坍缩为零</strong>，梯度消失，无法学习。这正是难题上 RLVR"找到第一个解之前根本学不动"的原因。</li>
+</ul>
+
+<p>一个自然的替代是<strong>从强教师蒸馏</strong>——它能提供稠密的 token 级监督。但在线学习的目标恰恰是<strong>突破现有模型的能力上限</strong>，此时"更强的外部教师"往往并不存在。论文的核心论点由此而来：</p>
+
+<div class="highlight">关键限制不在于 RL 本身，而在于<strong>标量奖励施加的信息瓶颈</strong>。许多可验证环境其实暴露了远超标量 $r$ 的富文本反馈（运行时错误、失败的单元测试、LLM 裁判评价）。这些反馈不仅告诉你"<em>错了</em>"，还告诉你"<em>为什么错</em>"。</div>
+
+<h3 id="rlrf">1.1 从 RLVR 到 RLRF</h3>
+
+<div class="figure-box">
+  <img src="images/fig02_rlvr_vs_rlrf.png" alt="RLVR vs RLRF">
+  <div class="caption"><b>Figure 2.</b> 左侧 RLVR：Agent 与 Environment 构成的交互闭环上，环境只回传一个标量 reward（图中 $-1.0$），它像一个信息瓶颈，把"火星气候轨道器推进器冲量"这道题的真实状态压成了一个数字。右侧 RLRF：同一闭环上回传的是 tokenized feedback（"请用牛顿·秒作答"），底部灰色箭头标注 "richer signal"——反馈既能编码奖励，也能编码状态的细节观测（如代码报错或裁判意见）。该图确立了全文的范式对立：标量奖励 vs 富文本反馈。</div>
+</div>
+
+<p>作者把这一更一般的设定形式化为 <strong>RLRF</strong>：反馈 $f$ 可以是 agentic 系统所达到的<strong>任意状态的任意 tokenized 表示</strong>。核心问题随之变为：<em>如何在不依赖外部强教师监督的前提下，把富反馈转化为有效的信用分配？</em></p>
+
+<h3 id="idea">1.2 核心洞察：把当前策略当作"自教师"</h3>
+
+<p>出发点是一个简单观察：<strong>LLM 本身已经具备使用反馈的强大机制——上下文学习（in-context learning）</strong>。当把反馈喂进上下文，同一个模型往往就能识别出可能的错误并提出修正。已有大量工作（Reflexion、Self-Refine 等）利用这一点<strong>反复生成修正答案</strong>。</p>
+
+<p>但 SDPO 的做法不同：它不让模型重新采样一个新回答，而是用当前策略作为<strong>自教师</strong>，去<strong>重新评估已有的那条 rollout</strong>。把反馈放进上下文，模型的 next-token 分布发生了改变，于是自教师可以在<strong>每个具体 token 位置</strong>上对学生的原始选择表示"赞同"或"反对"——这就产生了稠密的、logit 级的信用分配。</p>
+
+<div class="figure-box">
+  <img src="images/fig04_selfteach_logratios.png" alt="Self-teaching example">
+  <div class="caption"><b>Figure 4.</b> Qwen3-8B 自教学实例。① 问题：写一个返回 1 到 n 全部数字的 python 函数；② 模型在<em>未看反馈前</em>生成的答案 <code>return list(range(1, n + 1))</code>；③ 反馈 $f$："Don't include n."；④ 自教师重新评估原答案各 token 的 $\log(\Pr_{\text{self-teacher}}/\Pr_{\text{student}})$，红色高亮精确落在 <code>+ 1</code> 这个 token 上（自教师强烈反对）。关键点：模型仅凭"回顾"就定位了错误，无需被告知正确解；且激活是<strong>稀疏的</strong>，只在出错处亮起。这张图是 SDPO"稠密但稀疏激活"信用分配的直观证据。</div>
+</div>
+
+<div class="highlight">
+<b>同一个模型，两种角色：</b>初次作答时它是<strong>学生</strong> $\pi_\theta(\cdot\mid x)$；事后判定每个动作价值时它是<strong>教师</strong> $\pi_\theta(\cdot\mid x,f)$。因为教师多看到了反馈 $f$，它的准确率天然高于学生。SDPO 反复把自教师蒸馏进学生。
+</div>
+
+<h2 id="method">2. SDPO 方法</h2>
+
+<p>SDPO 是一个<strong>在线（on-policy）</strong>算法。下表把它放在四种后训练方法的坐标系里：它同时拥有"在线采样 + 富反馈 + 不需要外部强教师"三项优势，这是其它方法都凑不齐的组合。</p>
+
+<table>
+<thead><tr><th>方法</th><th>采样</th><th>信号</th><th>反馈来源</th></tr></thead>
+<tbody>
+<tr><td>SFT / 蒸馏 (Hinton 2015)</td><td>✗ 离线</td><td>✓ 富</td><td>✗ 需强教师</td></tr>
+<tr><td>On-Policy 蒸馏 (Agarwal 2024)</td><td>✓ 在线</td><td>✓ 富</td><td>✗ 需强教师</td></tr>
+<tr><td>RLVR / GRPO (Lambert 2025)</td><td>✓ 在线</td><td>✗ 弱（标量）</td><td>✓ 环境</td></tr>
+<tr><td><b>SDPO（本文）</b></td><td>✓ 在线</td><td>✓ 富</td><td>✓ 环境</td></tr>
+</tbody>
+</table>
+
+<h3 id="loss">2.1 蒸馏损失与梯度</h3>
+
+<p>核心对象是自教师 $\pi_\theta(\cdot\mid x,f)$。反馈 $f$ 可包含两类信息：<strong>环境输出</strong>（如代码运行时报错）和<strong>一个样例解</strong>（若同组其它 rollout 已解出该题）。SDPO 用 KL 散度衡量学生与教师 next-token 分布的差异，优化标准的 logit 蒸馏损失：</p>
+
+<div class="formula">
+$$\mathcal{L}_{\mathrm{SDPO}}(\theta):=\sum_t \mathrm{KL}\!\Big(\pi_\theta(\cdot\mid x,y_{&lt;t})\,\big\|\,\mathrm{stopgrad}\big(\pi_\theta(\cdot\mid x,f,y_{&lt;t})\big)\Big)$$
+</div>
+
+<p>逐项拆解：求和遍历回答的每个位置 $t$；左侧 $\pi_\theta(\cdot\mid x,y_{&lt;t})$ 是<strong>学生</strong>（不看反馈）在该位置的 next-token 分布；右侧 $\pi_\theta(\cdot\mid x,f,y_{&lt;t})$ 是<strong>自教师</strong>（看了反馈 $f$）的分布。<code>stopgrad</code> 至关重要——它阻断梯度流回教师，<strong>防止教师反向退化去迎合学生、从而忽略反馈 $f$</strong>。教师的直觉作用是：基于反馈 $f$ 回顾性地判定学生原答案"在哪里、以何种方式"出了错。</p>
+
+<p>论文进一步证明 SDPO 本质是一个策略梯度算法（Proposition 2.1）：</p>
+
+<div class="formula">
+$$\nabla\mathcal{L}_{\mathrm{SDPO}}(\theta)=\mathbb{E}_{y\sim\pi_\theta(\cdot\mid x)}\!\left[\sum_{t=1}^{|y|}\mathbb{E}_{\hat y_t\sim\pi_\theta(\cdot\mid x,y_{&lt;t})}\log\frac{\pi_\theta(\hat y_t\mid x,y_{&lt;t})}{\pi_\theta(\hat y_t\mid x,f,y_{&lt;t})}\cdot\nabla_\theta\log\pi_\theta(\hat y_t\mid x,y_{&lt;t})\right]$$
+</div>
+
+<p>这是一个 logit 级的（取负的）策略梯度，其<strong>优势函数由自教师估计</strong>。正因如此，SDPO 可以复用标准 RLVR 实现，<strong>只需把优势换掉</strong>。</p>
+
+<h3 id="vs">2.2 与 GRPO 的对照：稠密 vs 常数</h3>
+
+<p>把 GRPO 与 SDPO 的优势并排写出，差别一目了然：</p>
+
+<div class="formula">
+$$A^{\mathrm{GRPO}}_{i,t}:=r_i-\mathrm{mean}\{r_i\}_{i=1}^{G}\ \ (\text{对 }t\text{ 为常数}),\qquad A^{\mathrm{SDPO}}_{i,t}(\hat y_{i,t})=\log\frac{\pi_\theta(\hat y_{i,t}\mid x,f_i,y_{i,&lt;t})}{\pi_\theta(\hat y_{i,t}\mid x,y_{i,&lt;t})}$$
+</div>
+
+<p>GRPO 的优势<strong>只作用于被采样的那个 token，且在整条 rollout 内是常数</strong>。SDPO 的优势则：仅在"学生与教师完全一致"的 token 上为零；对教师认为<strong>更可能</strong>的 token 为正、<strong>更不可能</strong>的为负。于是 SDPO 在两个维度上扩展了 RLVR：① 从 1-bit 反馈扩展到<strong>任意 token 序列</strong>作为反馈；② 用这份富反馈估计<strong>稠密的 logit 级优势</strong>。</p>
+
+<div class="figure-box">
+  <img src="images/fig09_dense_credit.png" alt="Dense credit assignment">
+  <div class="caption"><b>Figure 9.</b> 稠密信用分配示意（沿用 Figure 4 的例子）。上排 GRPO：生成序列 <code>(range ( 1 , n + 1 ))\n</code> 的每个 token 都被涂成<strong>同一种红色</strong>——常数优势。下排 SDPO：纵轴是整个词表 $V$，横轴是生成位置；每个位置对 $|V|$ 个候选 token 都赋一个独立优势（红=变不可能，蓝=变更可能）。可见在 <code>+</code> 这一列，自教师把 <code>+</code> 涂红、把 <code>)</code>/<code>0</code> 涂蓝，精确指出"应改成 <code>range(1, n)</code> 不含 n"。实践中用 top-K + 尾概率近似，每条序列产生 $|y|\cdot(K+1)$ 个独立优势。</div>
+</div>
+
+<p>这种紧密联系还让 SDPO 可以像 PPO 一样，用 clipped importance sampling 直接扩展到<strong>离线（off-policy）数据</strong>（附录 A.4）。</p>
+
+<h3 id="stab">2.3 稳定性改进与计算开销</h3>
+
+<p><strong>两项稳定化技巧：</strong>① <strong>正则化自教师</strong>——用学生参数的指数移动平均（EMA），或把当前教师与初始教师插值（trust-region）；② 用<strong>对称的 Jensen-Shannon 散度</strong>替代 KL 作蒸馏损失（这一点在外部教师的 on-policy 蒸馏中也被证明能提升稳定性）。</p>
+
+<p><strong>计算与显存：</strong>SDPO 相对 GRPO 的唯一额外开销是计算自教师的 log-probs，而这可以高度并行，远快于串行生成。为避免同时存放学生与教师的完整 logits，作者用 <strong>top-K 蒸馏</strong>（如 $K=100$）近似 KL，几乎零显存开销却保留绝大部分信息。</p>
+
+<div class="figure-box">
+  <img src="images/fig05_timing.png" alt="Time per step" style="max-width:340px">
+  <div class="caption"><b>Figure 5.</b> 每训练步耗时（秒）。两根堆叠柱对比 GRPO 与 SDPO：深色为不含代码环境的部分、浅色为含代码环境。SDPO 仅带来 <strong>+5.8%</strong>（含环境）/ <strong>+17.1%</strong>（纯计算）的小幅开销；此处 micro-batch=2，加大可进一步摊薄。该图佐证"额外开销通常可忽略"的论断。</div>
+</div>
+
+<h2 id="exp3">3. 无富反馈环境下的学习（§3）</h2>
+
+<p>第一组实验最反直觉：即使在<strong>只返回标量奖励</strong>的标准 RLVR 环境里，SDPO 也能赢。诀窍是——把同批次中<strong>成功的 rollout 当作失败 rollout 的"反馈"</strong>。自教师拿学生的错误尝试去和一个正确解对比，就能定位错处、给出稠密信用。</p>
+
+<p><strong>设定：</strong>科学问答（化学/物理/生物/材料，取自 SciKnowEval L3 推理子集）与工具调用（ToolAlpaca）。起始模型 Qwen3-8B 与 Olmo3-7B-Instruct，报告 avg@16 对墙钟时间。基线是集成了多项近期改进（非对称裁剪、去偏归一化、off-policy 校正）的<strong>强化版 GRPO</strong>。每次运行用 4×NVIDIA GH200。</p>
+
+<div class="figure-box">
+  <img src="images/fig06_gen_results.png" alt="Training progression">
+  <div class="caption"><b>Figure 6.</b> Olmo3-7B-Instruct 在化学任务上的训练曲线（横轴为墙钟小时数）。<strong>左：测试精度</strong>——绿色 SDPO 在约 50 分钟即达到蓝色 GRPO 训练 5 小时的水平（标注 <strong>6× speedup</strong>），且终点精度高出 10 个百分点以上；浅蓝为 on-policy GRPO。<strong>右：回答长度</strong>——SDPO（绿）在训练初期迅速把长度压到接近 0，而两条 GRPO 曲线持续走高到 2000–2800 token，箭头标注 <strong>11× reduction</strong>。这张图同时支撑两个论断：SDPO 收敛更快、且学会用更短的回答达到更高精度。</div>
+</div>
+
+<p><strong>主结果（Table 3 节选，1h / 5h 内最高 avg@16）：</strong>SDPO 几乎在所有 run 上超过 GRPO，常常大幅领先；SDPO 训练 1 小时已接近 GRPO 训练 5 小时的水平。聚合精度 <strong>70.2% vs 66.6%</strong>。</p>
+
+<table>
+<thead><tr><th>模型 / 方法</th><th>化学 5h</th><th>物理 5h</th><th>生物 5h</th><th>材料 5h</th><th>工具 5h</th></tr></thead>
+<tbody>
+<tr><td>Qwen3-8B + GRPO</td><td>74.5</td><td>72.7</td><td>59.9</td><td>77.1</td><td>67.7</td></tr>
+<tr><td>Qwen3-8B + <b>SDPO</b></td><td><b>80.9</b></td><td><b>75.6</b></td><td>56.8</td><td><b>78.4</b></td><td><b>68.5</b></td></tr>
+<tr><td>Olmo3-7B + GRPO</td><td>56.7</td><td>63.3</td><td>55.8</td><td>75.0</td><td>65.0</td></tr>
+<tr><td>Olmo3-7B + <b>SDPO</b></td><td><b>80.0</b></td><td><b>66.1</b></td><td>52.8</td><td><b>79.1</b></td><td>62.1</td></tr>
+</tbody>
+</table>
+
+<div class="takeaway"><b>Takeaway 1：</b>无需对现有 RLVR 环境做任何改动，SDPO 就能学会有效推理并泛化到挑战性科学任务，在多个场景下大幅超越 GRPO。</div>
+
+<h3 id="concise">3.1 自蒸馏学会"简洁推理"</h3>
+
+<p>一个稳定且引人注目的副产物：SDPO 的回答<strong>平均短 3 倍以上</strong>，在 Olmo3 化学上甚至短 11 倍，精度却更高。论文给出了定性解释——GRPO 的长回答往往源于"<strong>表面推理</strong>"：大量 "Hmm"/"Wait" 填充词、原地打转重复同样的计算。</p>
+
+<div class="card">
+<p style="margin:0 0 6px"><b>同一道 logD 化学题（正确答案 C），训练 50 步后的回答对比：</b></p>
+<p style="margin:0 0 4px;font-style:italic;color:#555">GRPO（5,549 token）：……"Wait I'm going in circles"……反复出现 25 次 "Wait"、9 次 "No."、5 次 "Hmm."，"101.85≈69.3" 这个计算重复了 4 次……最后选 B（<span style="color:#b00">错</span>）。</p>
+<p style="margin:0;font-style:italic;color:#555">SDPO（764 token）：直接分析 pH 7.4 下官能团电中性、亲疏水平衡，估计 logD 落在 2.0–3.0，给出 2.61……选 C（<span style="color:#070">对</span>）。短 7 倍以上、零循环推理。</p>
+</div>
+
+<p>作者推测这源于 SDPO 的稠密信用分配：每个 next-token 都被赋予具体优势，导致优势本身是稀疏的，从而抑制了无意义的冗长。<strong>有效推理未必冗长</strong>——SDPO 改善的是"如何推理"，而非"推理多长"。</p>
+
+<h2 id="exp4">4. 富反馈环境下的学习（§4）</h2>
+
+<p>编程是富反馈环境的典范：运行时错误、失败的单元测试都是天然的文本反馈。作者用 <strong>LiveCodeBench v6</strong>（131 道 2025 年 2–5 月发布的竞赛题）评测，采用公开/私有测试划分（公开测试训练用、私有测试验证用），主模型 Qwen3-8B。Figure 1（见报告开头逻辑对应的主图）显示：</p>
+
+<div class="figure-box">
+  <img src="images/fig01_main_lcb.png" alt="SDPO vs GRPO on LCBv6" style="max-width:560px">
+  <div class="caption"><b>Figure 1.</b> LCBv6 上 Qwen3-8B 的学习曲线（横轴=生成数，纵轴=精度）。绿色 SDPO 持续爬升到 <strong>48.8%</strong>，蓝色 GRPO 在 ~41% 处早早饱和，灰色虚线是公开榜最强 instruct 模型 Claude Sonnet 4（40.5%）。SDPO 在约 5000 次生成处就追平了 GRPO 的最终精度——即 <strong>4× 更少生成量</strong>。阴影为 3 个种子的标准差。SDPO 不仅超过 GRPO，还超过了 Claude Sonnet 4 与 Opus 4（39.7%）。</div>
+</div>
+
+<div class="metric-grid">
+  <div class="metric-card"><div class="value">48.8%</div><div class="label">SDPO 终精度</div></div>
+  <div class="metric-card"><div class="value">41.2%</div><div class="label">GRPO 终精度</div></div>
+  <div class="metric-card"><div class="value">40.5%</div><div class="label">Claude Sonnet 4</div></div>
+  <div class="metric-card"><div class="value">39.7%</div><div class="label">Claude Opus 4</div></div>
+</div>
+
+<h3 id="scale">4.1 模型越强，SDPO 收益越大</h3>
+
+<div class="figure-box">
+  <img src="images/fig08_model_scaling.png" alt="Model scaling" style="max-width:560px">
+  <div class="caption"><b>Figure 8.</b> 跨 Qwen3 模型规模（0.6B→8B，对数横轴）在第 80 步的 LCBv6 验证精度。三条线自上而下：绿 SDPO、蓝 GRPO、灰 base model。在 0.6B 上 SDPO 与 GRPO 几乎重合，但随着规模增大差距单调拉开，到 8B 时 SDPO 明显领先。作者据此论证：<strong>自教师做精准回顾的能力，是随规模涌现的现象</strong>——正如上下文学习能力随规模涌现一样。补充实验（Qwen2.5）显示 SDPO 在 1.5B 这种更弱模型上甚至会<em>落后</em> GRPO。</div>
+</div>
+
+<div class="takeaway"><b>Takeaway 2：</b>SDPO 相对 GRPO 的边际收益与基座模型的强度紧密耦合。自教师的回顾能力是随规模涌现的——这也意味着在比 Qwen3-8B 更强的前沿模型上，SDPO 的优势可能更大。</div>
+
+<h3 id="dense">4.2 稠密信用分配消融</h3>
+
+<p>性能提升究竟来自"利用富反馈"（RLRF）还是"稠密信用分配"（SDPO 的 logit 级优势）？作者把 SDPO 退化成三档来拆解：<strong>logit 级</strong>（top-100 token）、<strong>token 级</strong>（仅最可能的 1 个 token）、<strong>sequence 级</strong>（把所有 token 优势平均成一个标量，像 GRPO 一样稠密度，但仍用富反馈 $f$）。</p>
+
+<div class="figure-box">
+  <img src="images/fig10_credit_bootstrap.png" alt="Credit assignment ablation and bootstrap">
+  <div class="caption"><b>Figure 10. 左（信用分配）：</b>四条精度曲线，从高到低为 logit 级 SDPO（绿）> token 级（橙）> sequence 级（蓝）> GRPO（灰）。结论有两层：① 信用分配越稠密越好；② <strong>即便最粗的 sequence 级 SDPO 也显著超过 GRPO</strong>——说明"利用富反馈"本身就能带来增益，与稠密度互补。<b>右（自教师自举）：</b>绿=学生、橙=教师在当前批次的生成精度，黑点线=初始教师水平、黑虚线=学生第 80 步水平。教师精度随训练上升，且<strong>学生最终反超了初始教师</strong>——证明 SDPO 实现了真正的"弱→强"自举，初始教师水平不构成学生的天花板。</div>
+</div>
+
+<h3 id="boot">4.3 自教师在训练中持续变强</h3>
+
+<p>与标准蒸馏不同，SDPO 的自教师<strong>不是冻结的</strong>，而是随学生一起更新。Table 4 比较了几种教师正则化策略（截至第 90 步的最佳/平均精度）：</p>
+
+<table>
+<thead><tr><th>教师策略</th><th>最佳精度</th><th>平均精度</th></tr></thead>
+<tbody>
+<tr><td>$q_\theta$（不正则，随学生）</td><td>36.1 ± 1.6</td><td>29.8 ± 1.3（最终发散）</td></tr>
+<tr><td>$q_{\theta_{\text{ref}}}$（冻结在初始教师）</td><td>48.8 ± 0.7</td><td>44.4 ± 0.2</td></tr>
+<tr><td><b>Trust-region（α=0.01）</b></td><td><b>50.6 ± 0.9</b></td><td><b>45.6 ± 0.2</b></td></tr>
+<tr><td>EMA（α=0.01）</td><td>49.3 ± 0.3</td><td>45.3 ± 0.2</td></tr>
+</tbody>
+</table>
+
+<p>结论：不正则的教师会发散；trust-region 与 EMA 都超过冻结教师，说明<strong>教师通过与学生共享参数确实在变强</strong>；但即便用冻结教师，SDPO 也表现良好。</p>
+
+<h3 id="forget">4.4 在线自蒸馏缓解灾难性遗忘</h3>
+
+<p>把 GRPO 和 SDPO 的最终 checkpoint 拿到 IFEval、ArenaHard-v2、MMLU-Pro 等保留任务上测。同时引入一个离线基线：对自教师的成功生成做 SFT。</p>
+
+<table>
+<thead><tr><th>方法</th><th>LCBv6（训练任务）</th><th>保留任务平均</th></tr></thead>
+<tbody>
+<tr><td>Base</td><td>27.9</td><td>43.5</td></tr>
+<tr><td>SFT on self-teacher（离线）</td><td>42.7</td><td>41.4</td></tr>
+<tr><td>GRPO</td><td>41.2</td><td>41.8</td></tr>
+<tr><td><b>SDPO</b></td><td><b>48.8</b></td><td><b>42.4</b></td></tr>
+</tbody>
+</table>
+
+<p>SDPO 取得最佳的"<strong>性能–遗忘</strong>"折中：既学好了新任务，又最小化了旧能力退化。离线 SFT 蒸馏则在 LCBv6 上显著落后、遗忘也更严重——印证了离线模仿不稳定的既有发现。</p>
+
+<h3 id="fb">4.5 哪种反馈最有用 & 能否与 GRPO 结合</h3>
+
+<p><strong>反馈类型消融（Table 6）：</strong>编程环境有三类反馈——<em>样例解</em>（同组成功 rollout）、<em>环境输出</em>（运行时报错）、<em>学生原始尝试 $y$</em>。</p>
+
+<table>
+<thead><tr><th>反馈 $f$ 组成</th><th>教师精度(%)</th><th>SDPO 训练后学生(%)</th><th>平均熵</th></tr></thead>
+<tbody>
+<tr><td>仅环境输出</td><td>32.5</td><td>39.9</td><td>0.40</td></tr>
+<tr><td>仅自身样例解</td><td>42.4</td><td>42.6</td><td>0.41</td></tr>
+<tr><td><b>环境输出 + 样例解</b></td><td>42.5</td><td><b>48.3</b></td><td>0.38</td></tr>
+<tr><td>+ 学生原始尝试 $y$</td><td>39.3</td><td>44.5</td><td>0.23（↓多样性）</td></tr>
+</tbody>
+</table>
+
+<p>关键结论：<strong>环境输出与样例解互补</strong>，各自提供有用信号，二者结合最佳（学生 48.3%）。而把<strong>学生原始尝试 $y$ 也塞进教师上下文反而有害</strong>——它会把教师偏向学生原答案，把平均熵从 ~0.40 压到 0.23，"same output" 比例飙到 30%，<strong>削弱了探索</strong>。环境输出尤其关键，因为<strong>即使学生从未解出该题，它也能提供信号</strong>，这正是 RLRF 区别于 RLVR 的核心。</p>
+
+<div class="figure-box">
+  <img src="images/fig11_grpo_sdpo.png" alt="Combining GRPO and SDPO" style="max-width:520px">
+  <div class="caption"><b>Figure 11.</b> 混合优势 $A^{\mathrm{SDPO+GRPO}}=\lambda A^{\mathrm{GRPO}}+(1-\lambda)A^{\mathrm{SDPO}}$（$\lambda=0.9$）跨 Qwen3 规模的第 80 步精度。橙=SDPO+GRPO、绿=SDPO、蓝=GRPO。在最弱的 0.6B 上橙线明显高于绿线（GRPO 的无偏低方差信号帮助稳定弱模型的不可靠 SDPO 优势）；但在 8B 等强模型上橙线略低于绿线。这揭示一个反直觉点：<strong>对足够强的初始模型，只靠标量奖励的 GRPO 信号反而是有害的</strong>。理论上这对应 RL 中蒙特卡洛（无偏高方差）vs 自举（有偏低方差）优势的经典张力——SDPO 优势是有偏但低方差的。</div>
+</div>
+
+<h2 id="exp5">5. 测试时自蒸馏：攻克难题（§5）</h2>
+
+<p>最后一个场景最具想象力。给定<strong>单独一道极难的二值奖励题</strong>，目标是尽快"发现"一个解。作者定义：</p>
+
+<div class="formula">
+$$\mathrm{discovery}@k:=\Pr(\text{发现时间}\le k)=\Pr\big(r(y_1\mid x)=1\ \text{或}\ \dots\ \text{或}\ r(y_k\mid x)=1\big)$$
+</div>
+
+<p>这是 pass@k 向"序列化采样算法"的推广。<strong>RLVR 在这里彻底失效</strong>：二值奖励在找到第一个解之前没有任何信号，GRPO 优势恒为零。而 SDPO 每次尝试后都拿到富反馈，可以在<em>从未解出</em>的情况下就不断"修正"错误。</p>
+
+<div class="figure-box">
+  <img src="images/fig12_compress_context.png" alt="Compressing context into weights">
+  <div class="caption"><b>Figure 12.</b> 把交互历史"压进权重"的过程。三行展示 $\theta_0\to\theta_1\to\theta_2$ 的演化：模型反复尝试同一道固定难题 $x$，每轮生成答案 $y_k$ 并收到反馈 $f_k$。与 multi-turn 把历史不断<strong>追加到上下文窗口</strong>不同，SDPO（batch=1）用反馈把 $\pi_\theta(\cdot\mid x,c)$ <strong>蒸馏进参数</strong>（图中阴影 SDPO 块），等效于把上下文 $c=(y_k,f_k)$ 压缩进策略 $\pi_{\theta'}(\cdot\mid x)$。这绕开了 Transformer 的上下文长度瓶颈，使模型能在超长交互历史上持续学习。</div>
+</div>
+
+<p><strong>设定：</strong>从 LCBv6 选出 Qwen3-8B 能力上限处的题——<em>hard</em>（pass@64 &lt; 0.5，19 道）与 <em>very hard</em>（pass@64 &lt; 0.03，9 道）。对比 best-of-k（i.i.d. 重采样）、multi-turn（上下文拼接历史反馈，FIFO 滑窗保持 32k 内）、SDPO（batch=16）。</p>
+
+<div class="figure-box">
+  <img src="images/fig13_discovery.png" alt="Discovery@k">
+  <div class="caption"><b>Figure 13.</b> discovery@k 曲线（横轴=尝试次数 $k$）。绿=SDPO、灰=Best-of-$k$、黑=Multi-turn。<strong>左（very hard, pass@64&lt;0.03）：</strong>SDPO 全程领先，要达到 22% 发现概率所需尝试数约为另两者的 <strong>1/3</strong>（标注 3× speedup）；discovery@2750 为 SDPO 53.2% vs best-of-k 41.5% vs multi-turn 35.6%。<strong>右（hard, pass@64&lt;0.5）：</strong>SDPO 达到 78%，并以约 2.4× 更少生成达到 67% 发现概率；箭头标注"SDPO 在 k=1000 前 70% 的情况下已找到解"。multi-turn 在约 837–1007 步触及上下文上限后增长停滞。</div>
+</div>
+
+<p>尤为有力的两个观察：① 有一道题（Q3）<strong>只有 SDPO 解出</strong>，best-of-k 与 multi-turn 在 2750 次尝试内都失败；SDPO 在第 321 次尝试（仅 20 步自蒸馏迭代）就发现了解。② <strong>初始自教师本身解不出这些难题</strong>（78% 的题上初始精度恰为 0%），但它的信用分配足够有效，使 SDPO 能<strong>迭代式地精炼策略并最终解题</strong>——这才是关键：单轮上下文反馈不够，但把反馈反复压进权重就够了。</p>
+
+<div class="takeaway"><b>Takeaway 3：</b>富环境反馈让 SDPO 能显著加速难题的"发现解"。这与 RLVR 形成鲜明对比——后者只有在第一个解被找到之后才开始学习。</div>
+
+<h2 id="analysis">6. 深度分析与洞察</h2>
+
+<h3>每个语言模型都隐式是一个 PRM</h3>
+<p>过程奖励模型（PRM）为序列每一步估计奖励以改善信用分配，但 PRM 通常是<strong>独立于学生的额外模型</strong>，带来显著显存开销，且仍训练在标量奖励上。SDPO 的洞察是：<strong>只要给定富反馈，每个语言模型都通过"回顾"隐式地成为一个 PRM</strong>——自教师就是这个免费的、与学生共享参数的过程奖励来源。</p>
+
+<h3>与 BYOL / 专家迭代的联系</h3>
+<p>SDPO 概念上与"自举你自己的隐变量"（BYOL）和"专家迭代"相关：学生反复模仿一个改进版的自己。经典专家迭代用测试时搜索（树搜索、多数投票）构造"专家"；SDPO 则用<strong>上下文中提供的富反馈</strong>来构造更强的自己——这类似 BYOL 中的"增强视图"。</p>
+
+<h3>在线 vs 离线自蒸馏</h3>
+<p>已有工作用<strong>离线</strong>自蒸馏从环境反馈学习（在教师的生成上做 SFT）。本文明确指出并实验验证：<strong>离线自蒸馏显著逊于 SDPO 的在线学习</strong>——离线版训练学生去模仿教师的生成，而 SDPO 训练学生去<strong>避免自己生成中的错误</strong>，后者更契合在线 RL、也更抗遗忘。</p>
+
+<h2 id="limit">7. 局限与展望</h2>
+
+<div class="card">
+<p style="margin:0 0 8px"><b>局限：</b></p>
+<ul style="margin:0">
+<li><strong>依赖基座的上下文学习能力</strong>：SDPO 主要适用于训练较强的基座；在弱模型上可能落后 GRPO（如 Qwen2.5-1.5B）。</li>
+<li><strong>依赖反馈质量</strong>：若环境提供的反馈无信息量或具误导性，模型可能无法从中学习。</li>
+<li><strong>小幅计算开销</strong>：需多算一遍回顾模型的 log-probs；对生成长度短、生成时间占比小的小模型，这部分开销相对更明显。</li>
+</ul>
+</div>
+
+<p><strong>展望：</strong>① <strong>长程与 agentic 设定</strong>——轨迹越长、越暴露中间状态，RLRF 越有吸引力；② <strong>规模化训练动态</strong>——在前沿基座上做大规模多任务 SDPO；③ <strong>超越可验证奖励</strong>——探索 SDPO 的回顾机制能否改善开放式文本生成或连续奖励任务的对齐；④ <strong>推理行为研究</strong>——系统研究 reprompt 模板等因素如何塑造"简洁 vs 冗长"的推理风格。</p>
+
+<h2 id="sum">8. 核心总结</h2>
+
+<div class="highlight">
+<ol style="margin:0">
+<li><strong>新范式 RLRF</strong>：把环境反馈从标量奖励升级为 tokenized 富反馈，移除 RLVR 的信息瓶颈。</li>
+<li><strong>新算法 SDPO</strong>：用"看过反馈的当前策略"作自教师，把其修正后的 log-probs 蒸馏回学生——无外部教师、无奖励模型，仅替换优势即可接入现有 RLVR 流水线。</li>
+<li><strong>稠密信用分配</strong>：从 GRPO 的"整条序列一个常数优势"升级为"每位置每候选 token 一个独立优势"，且激活稀疏、精确定位错误。</li>
+<li><strong>三线全胜</strong>：标量环境 70.2% vs 66.6% 且回答短 11×；LCBv6 48.8% vs 41.2% 且超过 Claude Sonnet 4 / Opus 4；测试时难题发现解快 3×。</li>
+<li><strong>随规模涌现</strong>：自教师的回顾能力随模型增大而增强，预示在更强基座上潜力更大；并能实现"弱→强"真正自举，缓解灾难性遗忘。</li>
+</ol>
+</div>
+
+<h2 id="src">来源链接</h2>
+<ul>
+<li>论文：<a href="https://arxiv.org/abs/2601.20802">arXiv:2601.20802 — Reinforcement Learning via Self-Distillation</a></li>
+<li>代码：<a href="https://github.com/lasgroup/SDPO">github.com/lasgroup/SDPO</a></li>
+<li>作者单位：ETH Zurich · Max Planck Institute for Intelligent Systems · MIT · Stanford</li>
+<li>基准/数据：LiveCodeBench v6、SciKnowEval、ToolAlpaca、IFEval、ArenaHard-v2、MMLU-Pro</li>
+</ul>
+
+<p style="color:#888;font-size:12px;margin-top:30px">本报告为基于论文原文的中文深度解读，所有图表均提取自论文 arXiv 源文件。图号与论文正文严格对应。</p>
+
+</div>
+</body>
+</html>
